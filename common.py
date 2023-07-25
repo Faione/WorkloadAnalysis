@@ -73,7 +73,7 @@ def map_total(df):
     # normalize 
 #     df = df.apply(lambda x: (x - x.min()) / (x.max() - x.min()))
         
-    df.rename(columns={"vm_cpu_ips": "vm_cpu_instructions"}, inplace=True)
+#     df.rename(columns={"vm_cpu_ips": "vm_cpu_instructions"}, inplace=True)
     
     # Network throughput
     net_bytes_df = df["vm_network_io_bytes_transmit"] + df["vm_network_io_bytes_receive"]
@@ -81,15 +81,16 @@ def map_total(df):
     df["vm_network_io_bytes_per_packet"] = net_bytes_df / net_packets_df
     
     # calculate IPS, CPU Time  per Network throughput    
-    for metric in ["vm_cpu_instructions", "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys"]:
-        df[f"{metric}_per_network_byte"] = df[metric] / net_bytes_df
-        df[f"{metric}_per_network_packet"] = df[metric] / net_packets_df
+    for metric in ["vm_cpu_ips", "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys", "vm_cpu_branch_ips"]:
+        if metric in df.columns:
+            df[f"{metric}_per_network_byte"] = df[metric] / net_bytes_df
+            df[f"{metric}_per_network_packet"] = df[metric] / net_packets_df
         
     # calculate Block IO throupt per Network throughput
     df["vm_block_bytes_per_network_byte"] = (df["vm_block_io_bytes_write"] + df["vm_block_io_bytes_read"]) / net_bytes_df
     df["vm_block_requests_per_network_packet"] = (df["vm_block_io_requests_write"] + df["vm_block_io_requests_read"]) / net_packets_df
 
-    df = df.drop(["vm_cpu_instructions",
+    df = df.drop(["vm_cpu_ips",
                   "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys", 
                   "vm_block_io_bytes_write", "vm_block_io_bytes_read", "vm_block_io_requests_write", "vm_block_io_requests_read",
                   "vm_network_io_bytes_transmit", "vm_network_io_bytes_receive", "vm_network_io_packets_transmit", "vm_network_io_packets_receive"],
