@@ -9,12 +9,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, recall_score, f1_score
 
 SUPER_PARAM = 1.5
-APP_MAP = {"memcached": "k-v store", "keydb": "k-v store", "redis": "k-v store"}
-GRAPH_RELATIVE_FOLDER = "tmp"
+GRAPH_RELATIVE_FOLDER = "graphs"
 
-def read_all_in_one_data(raw_data_file_path, raw_time_splits_path):
+def read_one_data(raw_data_file_path, raw_time_splits_path, select_app):
     df = pd.read_csv(raw_data_file_path)
-    df['Time'] = pd.to_datetime(df['Time'])
     df.set_index('Time', inplace=True)
     df = map_total(df)
     
@@ -23,18 +21,45 @@ def read_all_in_one_data(raw_data_file_path, raw_time_splits_path):
         
     X = []
     Y = []
-    
     apps = []
-    class_names = list(set([e if e not in APP_MAP else APP_MAP[e] for e in time_splits.keys()]))
+    class_names = list(set(time_splits.keys()))
+    
+    for (app_name, time_pairs) in time_splits.items():
+        if app_name == select_app:
+            for time_pair in time_pairs:
+                filtered_df = map_for_each_class(df.loc[(df.index >= time_pair["start"]) & (df.index <= time_pair["end"])])
+                if filtered_df.empty:
+                    print(time_pair["start"], time_pair["end"])
+                    continue
+                processed_data = pre_process_data(filtered_df)
+    
+                X.append(processed_data)
+                Y.append((len(apps), class_names.index(app_name)))
+            apps.append(app_name)
+    return (np.array(X) , np.array(Y), df.columns, class_names, apps)
+
+def read_all_in_one_data(raw_data_file_path, raw_time_splits_path, app_map):
+    df = pd.read_csv(raw_data_file_path)
+    df.set_index('Time', inplace=True)
+    df = map_total(df)
+    
+    with open(raw_time_splits_path, 'r') as f:
+        time_splits = json.load(f)
+        
+    X = []
+    Y = []
+    apps = []
+    class_names = list(set([e if e not in app_map else app_map[e] for e in time_splits.keys()]))
     for (app_name, time_pairs) in time_splits.items():
         for time_pair in time_pairs:
-            start_date = pd.to_datetime(datetime.datetime.fromtimestamp(time_pair["start"] / 1000))
-            end_date = pd.to_datetime(datetime.datetime.fromtimestamp(time_pair["end"] / 1000))
-            filtered_df = map_for_each_class(df.loc[start_date:end_date])
+            filtered_df = map_for_each_class(df.loc[(df.index >= time_pair["start"]) & (df.index <= time_pair["end"])])
+            if filtered_df.empty:
+                print(time_pair["start"], time_pair["end"])
+                continue
             processed_data = pre_process_data(filtered_df)
 
             X.append(processed_data)
-            Y.append((len(apps), class_names.index(app_name if app_name not in APP_MAP else APP_MAP[app_name])))
+            Y.append((len(apps), class_names.index(app_name if app_name not in app_map else app_map[app_name])))
         apps.append(app_name)
     return (np.array(X) , np.array(Y), df.columns, class_names, apps)
 
@@ -76,23 +101,34 @@ def map_total(df):
 #     df.rename(columns={"vm_cpu_ips": "vm_cpu_instructions"}, inplace=True)
     
     # Network throughput
-    net_bytes_df = df["vm_network_io_bytes_transmit"] + df["vm_network_io_bytes_receive"]
-    net_packets_df = df["vm_network_io_packets_transmit"] + df["vm_network_io_packets_receive"]
-    df["vm_network_io_bytes_per_packet"] = net_bytes_df / net_packets_df
+    net_bytes_transmit_df = df["vm_network_io_bytes_transmit"] + 1
+    net_bytes_receive_df = df["vm_network_io_bytes_receive"] + 1
+    net_packets_transmit_df = df["vm_network_io_packets_transmit"] + 1
+    net_packets_receive_df =  df["vm_network_io_packets_receive"] + 1
     
-    # calculate IPS, CPU Time  per Network throughput    
-    for metric in ["vm_cpu_ips", "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys", "vm_cpu_branch_ips"]:
+    df["vm_network_transmit_receive_packet_rate"] = net_packets_transmit_df / net_packets_receive_df
+    df["vm_network_avg_receive_packet_size"] = net_bytes_receive_df / net_packets_receive_df
+    df["vm_network_avg_transmit_packet_size"] = net_bytes_transmit_df / net_packets_transmit_df
+    
+    # calculate IPS, CPU Time  per Network throughput
+    temp = ["vm_cpu_ips", "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys", "vm_cpu_branch_ips"]
+    filtered_col = []
+    for metric in temp:
         if metric in df.columns:
-            df[f"{metric}_per_network_byte"] = df[metric] / net_bytes_df
-            df[f"{metric}_per_network_packet"] = df[metric] / net_packets_df
+            # df[f"{metric}_per_transmit_network_byte"] = df[metric] / net_bytes_transmit_df
+            # df[f"{metric}_per_receive_network_byte"] = df[metric] / net_bytes_receive_df
+            # df[f"{metric}_per_transmit_network_packet"] = df[metric] / net_packets_transmit_df
+            df[f"{metric}_per_receive_network_packet"] = df[metric] / net_packets_receive_df
+            filtered_col.append(metric)
         
     # calculate Block IO throupt per Network throughput
-    df["vm_block_bytes_per_network_byte"] = (df["vm_block_io_bytes_write"] + df["vm_block_io_bytes_read"]) / net_bytes_df
-    df["vm_block_requests_per_network_packet"] = (df["vm_block_io_requests_write"] + df["vm_block_io_requests_read"]) / net_packets_df
+    df["vm_block_bytes_write_per_receive_network_packet"] = df["vm_block_io_bytes_write"]  / net_packets_receive_df
+    df["vm_block_bytes_read_per_receive_network_packet"] = df["vm_block_io_bytes_read"] / net_packets_receive_df
+    
+    df["vm_block_requests_write_per_receive_network_packet"] = df["vm_block_io_requests_write"]/ net_packets_receive_df
+    df["vm_block_requests_read_per_receive_network_packet"] =  df["vm_block_io_requests_read"] / net_packets_receive_df
 
-    df = df.drop(["vm_cpu_ips",
-                  "vm_cpu_vcpu_time", "vm_cpu_time_user", "vm_cpu_time_sys", 
-                  "vm_block_io_bytes_write", "vm_block_io_bytes_read", "vm_block_io_requests_write", "vm_block_io_requests_read",
+    df = df.drop(filtered_col + ["vm_block_io_bytes_write", "vm_block_io_bytes_read", "vm_block_io_requests_write", "vm_block_io_requests_read",
                   "vm_network_io_bytes_transmit", "vm_network_io_bytes_receive", "vm_network_io_packets_transmit", "vm_network_io_packets_receive"],
                  axis=1)       
 
