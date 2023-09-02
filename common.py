@@ -173,7 +173,6 @@ def model_score(model, x_test, y_test):
     print(f"accuracy: {accuracy}, recall_micro: {recall}, f1_micro: {f1}")
     
 def spilt_for_train_test(X, Y, mode="random", **kwargs):
-    
     match mode:
         case "random":
             return train_test_split(X, Y[:, 1], random_state=42, test_size=0.3)
