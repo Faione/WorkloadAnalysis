@@ -443,15 +443,15 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
         if need_dev_net_packet and m in cfg["metric_need_dev_workload"]:
             units[m] = v['dev_packet_unit']
 
+    # 部分列消除负载影响
+    if need_dev_net_packet:
+        data = dev_net_packet(cfg,data)
+        
     # 相同指标，不同应用的y 轴的值是否统一在一个范围
     normalize = cfg['config']['normalize_y']
     ymax = {}
     for column in data.columns:
         ymax[column] = data[column].max()
-    
-    # 部分列消除负载影响
-    if need_dev_net_packet:
-        data = dev_net_packet(cfg,data)
 
     if is_merge == True:
         grouped = data.groupby(['app','app_remap'])

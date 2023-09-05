@@ -120,7 +120,7 @@
           },
           "editorMode": "code",
           "expr": "sum(irate(ebpf_exporter_syscalls_per_cgroup{job=\"ebpf_exporter\", instance=\"worknode:9435\", cgroup=~\"/sys/fs/cgroup/machine.slice/machine-qemu\\\\\\\\x2d4\\\\\\\\x2d.*/emulator\"}[$__interval])) by (syscall)",
-          "legendFormat": "__auto",
+          "legendFormat": "{{syscall}}",
           "range": true,
           "refId": "A"
         }
@@ -212,7 +212,7 @@
           },
           "editorMode": "code",
           "expr": "sum(irate(ebpf_exporter_syscalls_per_cgroup{job=\"ebpf_exporter\", instance=\"worknode:9435\", cgroup=~\"/sys/fs/cgroup/machine.slice/machine-qemu\\\\\\\\x2d4\\\\\\\\x2d.*/vcpu.*\"}[$__interval])) by (syscall)",
-          "legendFormat": "__auto",
+          "legendFormat": "{{syscall}}",
           "range": true,
           "refId": "A"
         }
@@ -1968,7 +1968,7 @@
           },
           "editorMode": "code",
           "expr": "rate(libvirt_domain_block_stats_flush_requests_total{domain=\"podman-alpine317_default\",instance=\"worknode:9177\",job=\"libvirt_exporter\"}[$__interval])",
-          "legendFormat": "request",
+          "legendFormat": "request_{{target_device}}",
           "range": true,
           "refId": "A"
         },
@@ -1980,7 +1980,7 @@
           "editorMode": "code",
           "expr": "rate(libvirt_domain_block_stats_flush_time_seconds_total{domain=\"podman-alpine317_default\",instance=\"worknode:9177\",job=\"libvirt_exporter\"}[$__interval])",
           "hide": false,
-          "legendFormat": "time",
+          "legendFormat": "time_{{target_device}}",
           "range": true,
           "refId": "B"
         }
@@ -2074,7 +2074,7 @@
           },
           "editorMode": "code",
           "expr": "libvirt_domain_block_stats_allocation{domain=\"podman-alpine317_default\",instance=\"worknode:9177\",job=\"libvirt_exporter\"}",
-          "legendFormat": "offset",
+          "legendFormat": "offset_{{target_device}}",
           "range": true,
           "refId": "A"
         }
@@ -2165,7 +2165,7 @@
           },
           "editorMode": "code",
           "expr": "libvirt_domain_block_stats_size_iops_bytes{domain=\"podman-alpine317_default\",instance=\"worknode:9177\",job=\"libvirt_exporter\"}",
-          "legendFormat": "iops",
+          "legendFormat": "iops_{{target_device}}",
           "range": true,
           "refId": "A"
         }
@@ -2189,6 +2189,6 @@
   "timezone": "",
   "title": "VM",
   "uid": "d03b2ad1-acb5-4889-b5ea-5f8613995b07",
-  "version": 17,
+  "version": 20,
   "weekStart": ""
 }

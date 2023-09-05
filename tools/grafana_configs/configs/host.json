@@ -610,7 +610,7 @@
           },
           "editorMode": "code",
           "expr": "avg by(mode)(rate(node_cpu_seconds_total{instance=\"worknode:9100\",job=\"node_exporter\"}[$__interval]))",
-          "legendFormat": "__auto",
+          "legendFormat": "{{mode}}",
           "range": true,
           "refId": "A"
         }
@@ -817,7 +817,7 @@
             "uid": "f3cb7d29-8542-4950-92d8-8358fcdcd9b9"
           },
           "editorMode": "code",
-          "expr": "node_load1 / on (instance) (count by (instance) (node_cpu_seconds_total{mode=\"idle\"}))",
+          "expr": "node_load1 / on (instance) (count by (instance) (node_cpu_seconds_total{mode=\"idle\",instance=\"worknode:9100\",job=\"node_exporter\"}))",
           "hide": false,
           "legendFormat": "load1",
           "range": true,
@@ -829,7 +829,7 @@
             "uid": "f3cb7d29-8542-4950-92d8-8358fcdcd9b9"
           },
           "editorMode": "code",
-          "expr": "node_load15 / on (instance) (count by (instance) (node_cpu_seconds_total{mode=\"idle\"}))",
+          "expr": "node_load15 / on (instance) (count by (instance) (node_cpu_seconds_total{mode=\"idle\",instance=\"worknode:9100\",job=\"node_exporter\"}))",
           "hide": false,
           "legendFormat": "load15",
           "range": true,
@@ -1601,6 +1601,6 @@
   "timezone": "",
   "title": "Host",
   "uid": "a95e533c-661b-434d-b1c8-6271733b22ca",
-  "version": 18,
+  "version": 20,
   "weekStart": ""
 }
