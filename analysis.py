@@ -4,9 +4,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import textwrap
-import openpyxl
 import csv
-
+import os
+import openpyxl
 from openpyxl.utils import get_column_letter
 from matplotlib import ticker
 from scipy.stats import entropy
@@ -26,16 +26,51 @@ GRAPH_RELATIVE_FOLDER = "graphs"
 
 # 数据读取
 def read_all_in_one_data(cfg):
+    result = load_data(cfg)
+
+    metric_rename = {}
+    drop_list = []
+
+    remap = {}
+    for v in cfg["metric_remap"]:
+        remap[v["metric"]]=v["rename"]
+    
+    for v in cfg["metric"]:
+        if v in result.columns[1:]:
+            if v in remap:
+                metric_rename[v]=remap[v]
+            else:
+                print(f'{v} need an describe in cfg.app_remap')
+                exit(1)
+    
+    for v in result.columns[1:-3]:
+        if v not in metric_rename:
+            drop_list.append(v)
+
+    if cfg["config"]["drop_un_remap"] == "true":
+        result = result.drop(columns=drop_list) 
+    result.rename(columns=metric_rename, inplace=True)
+    
+    return result,drop_list
+
+def load_data(cfg):
     raw_data_file_path = cfg["config"]["input_file_csv"]
     raw_time_splits_path = cfg["config"]["input_file_json"]
     apps_remap = cfg["apps_remap"]
     filter_threshold_min = cfg["config"]["filter"]["min_threshold"]
     filter_threshold_max = cfg["config"]["filter"]["max_threshold"]
-    
+
     df = pd.read_csv(raw_data_file_path)
+    if 'Unnamed: 0' in df.columns:
+        df = df.drop(columns=['Unnamed: 0'])
+    
     with open(raw_time_splits_path, 'r') as f:
         time_splits = json.load(f)
-        
+
+    app_label = {}
+    for i,v in enumerate(cfg["apps"]):
+        app_label[v] = i + 1
+    
     dfs = []
     dataCount = 0
     class_names = list(set([e if e not in apps_remap else apps_remap[e] for e in time_splits.keys()]))
@@ -43,29 +78,84 @@ def read_all_in_one_data(cfg):
         for time_pair in time_pairs:
             filtered_df = filter_noise(df.loc[(df['Time'] >= time_pair["start"]) & (df['Time'] <= time_pair["end"])],filter_threshold_min,filter_threshold_max)
             if filtered_df.empty:
-                print(time_pair["start"], time_pair["end"])
                 continue
             filtered_df['data_count'] = dataCount
             filtered_df['app_remap'] = app_name if app_name not in apps_remap else apps_remap[app_name]
-            filtered_df['app'] = app_name
+            filtered_df['app'] = app_label[app_name]
             dataCount = dataCount + 1
             dfs.append(filtered_df)
     result = pd.concat(dfs, ignore_index=True)
-
-    metric_remap = {}
-    drop_list = []
-    for v in cfg["metric_remap"]:
-        if v["metric"] in result.columns[1:]:
-            metric_remap[v["metric"]]=v["rename"]
-    for v in result.columns[1:-3]:
-        if v not in metric_remap:
-            drop_list.append(v)
-
-    if cfg["config"]["drop_un_remap"] == "true":
-        result = result.drop(columns=drop_list) 
-    result.rename(columns=metric_remap, inplace=True)
-    
     return result
+
+# 查看所有质变
+def show_all_metric(cfg):
+    data = load_data(cfg)
+    if 'Unnamed: 0' in data.columns:
+        data = data.drop(columns=['Unnamed: 0'])
+    for column in data.columns[1:-3]:
+        print(f'"{column}",')
+
+# 决策树预选指标
+def decision_tree_select_k_metric(cfg,per_times=10,k=1):
+    data = load_data(cfg)
+    if 'Unnamed: 0' in data.columns:
+        data = data.drop(columns=['Unnamed: 0'])
+    data = data.fillna(0)
+    topk = []
+    for i in range(1,k+1):
+        _,_,feature_top1 = decision_tree_select_one_metric(
+            cfg,
+            data.copy(),
+            times=per_times,
+            drop_list=topk
+        )
+        topk.append(feature_top1)
+
+    for v in topk:
+        print(f'"{v}",')
+    return topk
+
+def decision_tree_select_one_metric(cfg,data,times=10,drop_list=[]):
+    data = data.drop(columns=drop_list)
+    feature_names = data.drop(columns=['Time','data_count','app','app_remap']).columns
+    X = np.vstack(data.drop(columns=['Time','data_count','app','app_remap']).values)
+    data = data.reset_index()
+    Y = data['app'].values
+
+    parameters = {
+        'criterion': ['gini', 'entropy'],
+        'max_depth': [1, 2,3,4],
+        'min_samples_split': [2],
+        'min_samples_leaf': [1],
+        'max_features': [0.90]
+    }
+
+    feature_topk = {}
+    result = []
+    for i in range(1,times+1):
+        x_train, x_test, y_train, y_test = spilt_for_train_test(X, Y, mode="random")
+        clf = tree.DecisionTreeClassifier()
+        grid_search = GridSearchCV(clf, parameters, cv=3, scoring='f1_macro')
+        grid_search.fit(x_train, y_train)
+        accuracy,recall,f1 = model_score(grid_search.best_estimator_, x_test, y_test)
+        
+        used_feature = []
+        for v in grid_search.best_estimator_.tree_.feature:
+            if v > 0:
+                used_feature.append(feature_names[v])
+                if feature_names[v] not in feature_topk:
+                    feature_topk[feature_names[v]]=1
+                else:
+                    feature_topk[feature_names[v]]=feature_topk[feature_names[v]]+1
+        result.append({"features":used_feature,"score": {"accuracy":accuracy,"recall":recall,"f1":f1}})
+
+    max_name = ""
+    max_value = 0
+    for k,v in feature_topk.items():
+        if v > max_value:
+            max_value = v
+            max_name  = k
+    return feature_topk,result,max_name
 
 
 def filter_noise(df,min,max):
@@ -92,7 +182,8 @@ def model_score(model, x_test, y_test):
     recall = recall_score(y_test, y_pred, average='micro')
     f1 = f1_score(y_test, y_pred, average='micro')
     
-    print(f"accuracy: {accuracy}, recall_micro: {recall}, f1_micro: {f1}")
+    # print(f"accuracy: {accuracy}, recall_micro: {recall}, f1_micro: {f1}")
+    return accuracy,recall,f1
 
 
 def spilt_for_train_test(X, Y, mode="random", **kwargs):
@@ -111,7 +202,8 @@ def svm_check(data):
     clf = svm.SVC()
     clf = clf.fit(normalize(x_train), y_train)
     
-    model_score(clf, normalize(x_test), y_test)
+    accuracy,recall,f1 = model_score(clf, normalize(x_test), y_test)
+    print(f"accuracy: {accuracy}, recall_micro: {recall}, f1_micro: {f1}")
 
 def decision_tree(data):
     data = data.fillna(0)
@@ -131,7 +223,8 @@ def decision_tree(data):
     grid_search = GridSearchCV(clf, parameters, cv=cv, scoring='f1_macro')
     grid_search.fit(x_train, y_train)
     
-    model_score(grid_search.best_estimator_, x_test, y_test)
+    accuracy,recall,f1 = model_score(grid_search.best_estimator_, x_test, y_test)
+    print(f"accuracy: {accuracy}, recall_micro: {recall}, f1_micro: {f1}")
     
 
 # k mean 聚类算法监测
@@ -159,7 +252,8 @@ def kmeans_check(cfg,data,random_state = 160,filename='sklearn_check'):
         writer.writerows(reslut) 
 
     silhouette_avg = silhouette_score(X, Y)
-    
+
+    print(silhouette_avg)
     return silhouette_avg
 
 
@@ -168,11 +262,12 @@ def kmeans_check(cfg,data,random_state = 160,filename='sklearn_check'):
 #  + Receive Packet mean / 10  主要原因是 Receive Packet 经常从0开始， 除0会导结果变很大
 
 def dev_net_packet(cfg,df):
-    need_dev_net_packet_columns=cfg["metric_need_dev_network_receive_packet"]
+    need_dev_net_packet_columns=cfg["metric_need_dev_workload"]
 
-    mean = df['Application Program Network Receive Packet'].mean()
+    mean = df[cfg['workload_metric']].mean()
     for column in need_dev_net_packet_columns:
-        df[column] = df[column] / ( df['Application Program Network Receive Packet'] + mean / 10 )
+        df[column] = df[column] / ( df[cfg['workload_metric']] + mean / 10 )
+        df[column] = df[column].fillna(0)
     return df
 
 # 聚合指标，主要是包大小
@@ -181,6 +276,7 @@ def metric_aggregate(cfg,df):
     for v in cfg['metric_aggregate']:
         if v['deal']['mode'] == 'div':
             df[v['rename']] = df[v['deal']['num']] / df[v['deal']['den']]
+            df[v['rename']] = df[v['rename']].fillna(0)
         infos[v['rename']] = v
     return df,infos
 
@@ -188,6 +284,8 @@ def metric_aggregate(cfg,df):
 def metric_compute(cfg,data,column,ymax,kind):
     if kind == 'san':
         num_bins = 20
+        if ymax == 0:
+            return 0
         bins = np.linspace(0, ymax, num_bins + 1)   
         ds = pd.DataFrame(pd.cut(data[column], bins=bins,labels=False).value_counts()).reindex(range(0, num_bins), fill_value=0)
         ds['count'] = ds['count'] / ds['count'].sum()
@@ -197,8 +295,10 @@ def metric_compute(cfg,data,column,ymax,kind):
         value = data[column].mean()
     elif kind == 'std':
         value = data[column].std()
-    else:
+    elif kind == 'p99':
         value = data[column].quantile(0.99)
+    else:
+        value = 0
     return value
     
 # 提取指标到excel，改指标可以用来做聚类
@@ -216,9 +316,9 @@ def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',
     for column in data.columns:
         ymax[column] = data[column].max()
 
-    grouped = data.groupby(['app_remap','app'])
+    grouped = data.groupby(['app','app_remap'])
     if is_merge == False:
-        grouped = data.groupby(['data_count','app_remap','app'])
+        grouped = data.groupby(['data_count','app','app_remap'])
     
     chName = {}
     stName = {}
@@ -298,42 +398,26 @@ def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',
     row_index = 6
     for app,gp in grouped:
         if is_merge == True:
-            worksheet[f'{get_column_letter(1)}{row_index}']= app[0]
-            data_index.append(app[0])
+            worksheet[f'{get_column_letter(1)}{row_index}']= app[1]
+            data_index.append(app[1])
         else:
-            worksheet[f'{get_column_letter(1)}{row_index}']= f'{app[1]} {app[0]}'
-            data_index.append(f'{app[1]}_{app[0]}')
+            worksheet[f'{get_column_letter(1)}{row_index}']= f'{app[2]} {app[0]}'
+            data_index.append(f'{app[2]}_{app[0]}')
         columns_index = 1
         data_row = []
         for k,ms in className.items():
             for column in ms:
                 for cl in cfg['config']['metric_extra']:
                     idx = columns_index + 1
-                    if cl == 'san':
-                        val = metric_compute(cfg,gp,column,ymax[column],'san')
-                        worksheet[f'{get_column_letter(idx)}{row_index}'] = val
-                        data_row.append(val)
-                    elif cl == 'avg':
-                        val = metric_compute(cfg,gp,column,ymax[column],'avg')
-                        worksheet[f'{get_column_letter(idx)}{row_index}'] = val
-                        data_row.append(val)
-                    elif cl == 'std':
-                        val = metric_compute(cfg,gp,column,ymax[column],'std')
-                        worksheet[f'{get_column_letter(idx)}{row_index}'] = val
-                        data_row.append(val)
-                    else:
-                        val = metric_compute(cfg,gp,column,ymax[column],'p99')
-                        worksheet[f'{get_column_letter(idx)}{row_index}'] = val
-                        data_row.append(val)
+                    
+                    val = metric_compute(cfg,gp,column,ymax[column],cl)
+                    worksheet[f'{get_column_letter(idx)}{row_index}'] = val
+                    data_row.append(val)
+                    
                     columns_index = columns_index + 1
         row_index = row_index + 1
+        data_row.append(app[len(app)-1])
         data_row.append(app[len(app)-2])
-        lb = 1
-        for i,k in enumerate(cfg['apps']):
-            ka = k if k not in cfg['apps_remap'] else cfg['apps_remap'][k]
-            if ka == app[len(app)-2]:
-                lb = i + 1
-        data_row.append(lb)
         data_array.append(data_row)
 
     if is_save:
@@ -352,11 +436,11 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
     units = {}
     for v in cfg['metric_remap']:
         units[v['rename']] = v['unit']
-        if dev_net_packet and v['rename'] in cfg["metric_need_dev_network_receive_packet"]:
+        if need_dev_net_packet and v['rename'] in cfg["metric_need_dev_workload"]:
             units[v['rename']] = v['dev_packet_unit']
     for m,v in infos.items():
         units[m]=v['unit']
-        if dev_net_packet and m in cfg["metric_need_dev_network_receive_packet"]:
+        if need_dev_net_packet and m in cfg["metric_need_dev_workload"]:
             units[m] = v['dev_packet_unit']
 
     # 相同指标，不同应用的y 轴的值是否统一在一个范围
@@ -370,12 +454,12 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
         data = dev_net_packet(cfg,data)
 
     if is_merge == True:
-        grouped = data.groupby(['app_remap','app'])
+        grouped = data.groupby(['app','app_remap'])
     else:
-        grouped = data.groupby(['data_count','app_remap','app'])
+        grouped = data.groupby(['data_count','app','app_remap'])
     
     for app_info, group in grouped: 
-        data = group.drop(columns=['data_count','app_remap','app']) 
+        data = group.drop(columns=['data_count','app','app_remap']) 
         data = data.sort_values(by='Time')
         data = data.reset_index()
         data  = data.drop(columns=['Time','index']) 
@@ -386,9 +470,9 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
         if len(select_columns) == 0:
             metric_count =  len(data.columns) - 1
         else:
-            metric_count = select_columns
+            metric_count = len(select_columns)
         sq = int(math.sqrt(metric_count))
-        higth_count = sq if sq * sq >= 4 else sq + 1
+        higth_count = sq if sq * sq >= metric_count else sq + 1
         width_count = sq if (sq + 1) * sq > metric_count else sq + 1
     
         title_space = fig_size_higth * title_space_rate
@@ -429,7 +513,7 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
             # 时序图
             wrapped_title = textwrap.fill(column, width=subtitle_width)
             ax_series.set_title(wrapped_title, fontsize=fontsize_set)
-            if column == 'Application Program Network Receive Packet':
+            if column == cfg['workload_metric']:
                 linewidth = 5
                 markersize = 8
                 color = "red" 
@@ -444,6 +528,9 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
                 maxY = ymax[column]
             else:
                 maxY = data[column].max()
+
+            if maxY == 0:
+                maxY = 1
             ax_series.set_ylim(0, maxY)
             ax_series.tick_params(labelsize=fontsize_set-4, width=2, length=4, grid_linestyle=':')
             ax_series.grid()
