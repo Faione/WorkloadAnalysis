@@ -15,7 +15,9 @@ def generate_random_string(length):
 def read_targets(file_name, target_id_len = 5):
     with open(file_name, 'r', encoding="utf-8") as f:
         data = json.load(f)
-    
+    return read_targets_from_json(data, target_id_len)
+
+def read_targets_from_json(data, target_id_len = 5):
     targets = []
     current_namespace = data["title"]
     current_subsystem = ""
@@ -40,6 +42,6 @@ def read_targets(file_name, target_id_len = 5):
                 target["legendFormat"] = legend
 
                 targets.append(target)
-    return targets
+    return targets   
 
 
