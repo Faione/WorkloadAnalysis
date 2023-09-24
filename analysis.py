@@ -7,6 +7,7 @@ import textwrap
 import csv
 import os
 import openpyxl
+import sys
 from openpyxl.utils import get_column_letter
 from matplotlib import ticker
 from scipy.stats import entropy
@@ -25,8 +26,14 @@ SUPER_PARAM = 1.5
 GRAPH_RELATIVE_FOLDER = "graphs"
 
 # 数据读取
-def read_all_in_one_data(cfg):
-    result = load_data(cfg)
+def read_all_in_one_data(cfg,raw_data_file_path="",raw_time_splits_path=""):
+    if raw_data_file_path == "":
+        raw_data_file_path = cfg["config"]["input_file_csv"]
+    if raw_time_splits_path == "":
+        raw_time_splits_path = cfg["config"]["input_file_json"]
+    result = load_data(cfg,
+                       raw_data_file_path,
+                       raw_time_splits_path)
 
     metric_rename = {}
     drop_list = []
@@ -43,7 +50,7 @@ def read_all_in_one_data(cfg):
                 print(f'{v} need an describe in cfg.app_remap')
                 exit(1)
     
-    for v in result.columns[1:-3]:
+    for v in result.columns[1:-4]:
         if v not in metric_rename:
             drop_list.append(v)
 
@@ -53,9 +60,7 @@ def read_all_in_one_data(cfg):
     
     return result,drop_list
 
-def load_data(cfg):
-    raw_data_file_path = cfg["config"]["input_file_csv"]
-    raw_time_splits_path = cfg["config"]["input_file_json"]
+def load_data(cfg,raw_data_file_path,raw_time_splits_path):
     apps_remap = cfg["apps_remap"]
     filter_threshold_min = cfg["config"]["filter"]["min_threshold"]
     filter_threshold_max = cfg["config"]["filter"]["max_threshold"]
@@ -74,14 +79,31 @@ def load_data(cfg):
     dfs = []
     dataCount = 0
     class_names = list(set([e if e not in apps_remap else apps_remap[e] for e in time_splits.keys()]))
-    for (app_name, time_pairs) in time_splits.items():
+    for (app, time_pairs) in time_splits.items():
+        app_name = app
+        workload = "quick"
+        if cfg["apps_name_need_split"] == "true":
+            app_name = app.split("_")[0]
+            workload = app.split("_")[1]
+        if app_name in cfg["drop_apps"]:
+            continue
         for time_pair in time_pairs:
             filtered_df = filter_noise(df.loc[(df['Time'] >= time_pair["start"]) & (df['Time'] <= time_pair["end"])],filter_threshold_min,filter_threshold_max)
             if filtered_df.empty:
                 continue
+            if "addition" in time_pair.keys():
+                filtered_df['qps'] = float(time_pair["addition"]["metric"]["qps"])
+                filtered_df['p95_latency'] = float(time_pair["addition"]["metric"]["p95_latency"])
+                # add 观测指标
+                if "stress" in time_pair["addition"].keys():
+                    if "mem" in time_pair["addition"]["stress"].keys():
+                        filtered_df['qps'] = float(time_pair["addition"]["metric"]["mem"]["memrate"])
+                    if "cpu" in time_pair["addition"]["stress"].keys():
+                        filtered_df['qps'] = float(time_pair["addition"]["metric"]["cpu"]["cpu"])
             filtered_df['data_count'] = dataCount
             filtered_df['app_remap'] = app_name if app_name not in apps_remap else apps_remap[app_name]
             filtered_df['app'] = app_label[app_name]
+            filtered_df['workload'] = workload
             dataCount = dataCount + 1
             dfs.append(filtered_df)
     result = pd.concat(dfs, ignore_index=True)
@@ -92,7 +114,7 @@ def show_all_metric(cfg):
     data = load_data(cfg)
     if 'Unnamed: 0' in data.columns:
         data = data.drop(columns=['Unnamed: 0'])
-    for column in data.columns[1:-3]:
+    for column in data.columns[1:-4]:
         print(f'"{column}",')
 
 # 决策树预选指标
@@ -261,14 +283,68 @@ def kmeans_check(cfg,data,random_state = 160,filename='sklearn_check'):
 #  Receive Packet +  Receive Packet mean / 10
 #  + Receive Packet mean / 10  主要原因是 Receive Packet 经常从0开始， 除0会导结果变很大
 
-def dev_net_packet(cfg,df):
+def dev_net_packet(cfg,df,lr_ab,app):
     need_dev_net_packet_columns=cfg["metric_need_dev_workload"]
 
-    mean = df[cfg['workload_metric']].mean()
-    for column in need_dev_net_packet_columns:
-        df[column] = df[column] / ( df[cfg['workload_metric']] + mean / 10 )
-        df[column] = df[column].fillna(0)
-    return df
+    method = cfg["config"]["load_balancing"]["method"]
+    if method == "mean":
+        mean = df[cfg['workload_metric']].mean()
+        for column in need_dev_net_packet_columns:
+            df[column] = df[column] / ( df[cfg['workload_metric']] + mean / 10 )
+            df[column] = df[column].fillna(0)
+        return df
+    elif method == "linear_regression":
+        if cfg["config"]["load_balancing"]["linear_regression"]["use_a_b"] == "false":
+            subset = df.sample(frac=0.3)
+            x = subset[cfg['workload_metric']]
+            
+            for column in need_dev_net_packet_columns:
+                y = subset[column]
+    
+                # y = a * x + b
+                coefficients = np.polyfit(x, y, 1)
+                a = coefficients[0]
+                b = coefficients[1]
+                df[column] = df[column] - a * df[cfg['workload_metric']]
+        else:
+            for column in need_dev_net_packet_columns:
+                df[column] = df[column] - lr_ab[app][column]["a"] * df[cfg['workload_metric']]
+        return df
+    else:
+        return df
+
+def regression(df,column,workload_col):
+    subset = df.sample(frac=0.3)
+    
+    x = subset[workload_col]
+    y = subset[column]
+
+    # y = a * x + b
+    coefficients = np.polyfit(x, y, 1)
+    a = coefficients[0]
+    b = coefficients[1]
+
+    # print(f'y={df[column].mean()}, a * x = {a*df[workload_col].mean()} , a ={a},b={b}')
+    return df,a,b
+
+def get_regression_para(cfg,data):
+    coefficients = {}
+    grouped = data.groupby(['app_remap','workload'])
+    for app_info,group in grouped:
+        app,wk = app_info[0],app_info[1]
+
+        if app not in coefficients.keys():
+            coefficients[app]={}
+        if wk == cfg["config"]["load_balancing_compare"]["select_workload"]:
+            for column in group.columns[:-4]:
+                if column in cfg["metric_need_dev_workload"]:
+                    _,a,b = regression(group,column = column,workload_col = cfg["workload_metric"])
+                    if column not in coefficients[app].keys():
+                        coefficients[app][column] = {}
+                    coefficients[app][column]["a"] = a
+                    coefficients[app][column]["b"] = b
+    return coefficients
+        
 
 # 聚合指标，主要是包大小
 def metric_aggregate(cfg,df):
@@ -297,39 +373,136 @@ def metric_compute(cfg,data,column,ymax,kind):
         value = data[column].std()
     elif kind == 'p99':
         value = data[column].quantile(0.99)
+    elif kind == 'cos':
+        wk = cfg['workload_metric']
+        A = data[column]
+        B = data[wk]
+        
+        if np.all(A == 0) or np.all(B == 0) or np.linalg.norm(A) == 0 or np.linalg.norm(B) == 0:
+            value = -2
+        else:
+            value  = np.dot(A, B) / (np.linalg.norm(A) * np.linalg.norm(B))
+    elif kind == 'euc':
+        wk = cfg['workload_metric']
+        A = data[column]
+        B = data[wk]
+
+        sA = A.max() - A.min()
+        sB = B.max() - B.min()
+
+        normalized_A = 0 if sA == 0 else  (A - A.min()) / sA
+        normalized_B = 0 if sB == 0 else  (B - B.min()) / sB
+            
+        value = np.sqrt(np.sum((normalized_A - normalized_B)**2))
     else:
         value = 0
     return value
+
+# Hanlin Du
+# 指标间聚类
+def metric_clustering(cfg, data, algo="euc"):
+    # data, _ = metric_aggregate(cfg,data) 
+    data = data.sort_values(by='Time')
+    data = data.drop(columns=['Time', 'data_count', 'app_remap', 'app']) 
+            
+    columns = data.columns
+    col_len = len(columns)
+    correlation = []
+    for col_a_index in range(col_len):
+        col_a = columns[col_a_index]
+        cor_tmp = []
+        
+        for col_b in columns[col_a_index:]:
+            A = data[col_a]
+            B = data[col_b]
+            if algo == "euc":
+                sA = A.max() - A.min()
+                sB = B.max() - B.min()
+
+                normalized_A = 0 if sA == 0 else  (A - A.min()) / sA
+                normalized_B = 0 if sB == 0 else  (B - B.min()) / sB
+            
+                value = np.sqrt(np.sum((normalized_A - normalized_B)**2))
+            else:
+                if np.all(A == 0) or np.all(B == 0) or np.linalg.norm(A) == 0 or np.linalg.norm(B) == 0:
+                    value = -2
+                else:
+                    value  = np.dot(A, B) / (np.linalg.norm(A) * np.linalg.norm(B))
+            cor_tmp.append(value)
+        
+        correlation.append(cor_tmp)
+
+    corre_table = [columns, correlation]
+    return corre_table
+
+
+def correlation_list(corre_table, mode='upper'):
+    out_file = "data/correlation.csv"
+    matric_name = corre_table[0]
+    correlation = corre_table[1]
+    matric_len = len(matric_name)
+    corr_matrix = []
+
+    for i in range(matric_len):
+        corr_tmp = []
+        for j in range(matric_len):
+            if i > j:
+                if mode == "full":
+                    corr_tmp.append(corr_matrix[j][i])
+                elif mode == "upper":
+                    corr_tmp.append(0)
+            else:
+                corr_tmp.extend(correlation[i])
+                if len(corr_tmp) != matric_len:
+                    sys.exit(0)
+                corr_matrix.append(corr_tmp)
+                break
+
+    for i in range(matric_len):
+        corr_matrix[i].insert(0, matric_name[i])
+
+    with open(out_file, "w", newline='') as o_file:
+        writer = csv.writer(o_file)
+        writer.writerow(matric_name.insert(0, ''))
+        writer.writerows(corr_matrix)
     
+
 # 提取指标到excel，改指标可以用来做聚类
 def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',is_merge=True,is_save=True):
     metric_extra = cfg['config']['metric_extra']
+
+    columns_need_extra_to_excel=cfg['metric_excel_extra']
 
     # 新增指标处理
     data,infos = metric_aggregate(cfg,data)
 
     # 平滑处理
     if need_dev_net_packet:
-        data = dev_net_packet(cfg,data)
+    #     data = dev_net_packet(cfg,data)
+        lr_cfg = get_regression_para(cfg,data)
 
     ymax = {}
     for column in data.columns:
         ymax[column] = data[column].max()
 
-    grouped = data.groupby(['app','app_remap'])
+    grouped = data.groupby(['app','app_remap','workload'])
     if is_merge == False:
-        grouped = data.groupby(['data_count','app','app_remap'])
+        grouped = data.groupby(['data_count','app','app_remap','workload'])
     
     chName = {}
     stName = {}
     className = {}
     for v in cfg['metric_remap']:
+        if v['rename'] not in columns_need_extra_to_excel:
+            continue
         chName[v['rename']] = v['rename_ch']
         stName[v['rename']] = v['short_name']
         if v['belong'] not in className:
             className[v['belong']] = []
         className[v['belong']].append(v['rename'])
     for m,v in infos.items():
+        if m not in columns_need_extra_to_excel:
+            continue
         chName[m]=v['rename_ch']
         stName[m] = v['short_name']
         if v['belong'] not in className:
@@ -391,18 +564,28 @@ def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',
                 data_columns.append(f'{m} {cl}')
     data_columns.append('app')
     data_columns.append('label')
+    data_columns.append('workload')
 
 
     data_index=[]
     data_array=[]
     row_index = 6
     for app,gp in grouped:
+        
+        
         if is_merge == True:
-            worksheet[f'{get_column_letter(1)}{row_index}']= app[1]
+            worksheet[f'{get_column_letter(1)}{row_index}']= f'{app[1]} {app[2]}'
             data_index.append(app[1])
+
+            if need_dev_net_packet:
+                gp = dev_net_packet(cfg,gp,lr_cfg,app[1])
         else:
-            worksheet[f'{get_column_letter(1)}{row_index}']= f'{app[2]} {app[0]}'
+            worksheet[f'{get_column_letter(1)}{row_index}']= f'{app[2]} {app[3]} {app[0]}'
             data_index.append(f'{app[2]}_{app[0]}')
+
+            if need_dev_net_packet:
+                gp = dev_net_packet(cfg,gp,lr_cfg,app[2])
+                
         columns_index = 1
         data_row = []
         for k,ms in className.items():
@@ -416,8 +599,9 @@ def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',
                     
                     columns_index = columns_index + 1
         row_index = row_index + 1
-        data_row.append(app[len(app)-1])
         data_row.append(app[len(app)-2])
+        data_row.append(app[len(app)-3])
+        data_row.append(app[len(app)-1])
         data_array.append(data_row)
 
     if is_save:
@@ -426,7 +610,7 @@ def extral_metric(cfg,data,need_dev_net_packet=False,filename='metric_analysis',
 
 
 # 这个代码主要是看一下指标长啥样，指标在data_deal.json里面配置
-def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_size_higth = 16,fontsize_set = 18,subtitle_width = 25,suby_label_width=25,subhist_buckets = 20,title_space_rate=0.03,bottom_space_rate=0.05,left_space_rate=0.05,is_merge=True,select_columns=[],sub_dir='data'):
+def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_size_higth = 16,fontsize_set = 18,subtitle_width = 25,suby_label_width=25,subhist_buckets = 20,title_space_rate=0.03,bottom_space_rate=0.05,left_space_rate=0.05,is_merge=True,select_columns=[],sub_dir='data',merge_workload=False):
     pic_dir=cfg['config']['output_dir']
 
     # 聚合处理部分数据
@@ -442,59 +626,58 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
         units[m]=v['unit']
         if need_dev_net_packet and m in cfg["metric_need_dev_workload"]:
             units[m] = v['dev_packet_unit']
-
-    # 部分列消除负载影响
-    if need_dev_net_packet:
-        data = dev_net_packet(cfg,data)
-        
+    
     # 相同指标，不同应用的y 轴的值是否统一在一个范围
     normalize = cfg['config']['normalize_y']
     ymax = {}
     for column in data.columns:
         ymax[column] = data[column].max()
 
+    # 部分列消除负载影响
+    # if need_dev_net_packet:
+    #     data = dev_net_packet(cfg,data)
+    if need_dev_net_packet:
+        lr_cfg = get_regression_para(cfg,data)
+        # print(lr_cfg)
+
     if is_merge == True:
-        grouped = data.groupby(['app','app_remap'])
+        if merge_workload == True:
+            grouped = data.groupby(['app','app_remap'])
+        else:
+            grouped = data.groupby(['app','app_remap','workload'])
     else:
-        grouped = data.groupby(['data_count','app','app_remap'])
+        if merge_workload == True:
+            grouped = data.groupby(['data_count','app','app_remap'])
+        else:
+            grouped = data.groupby(['data_count','app','app_remap','workload'])
     
     for app_info, group in grouped: 
-        data = group.drop(columns=['data_count','app','app_remap']) 
+        data = group.drop(columns=['data_count','app','app_remap','workload']) 
         data = data.sort_values(by='Time')
         data = data.reset_index()
         data  = data.drop(columns=['Time','index']) 
         data = data.reset_index()
         data.rename(columns={'index': 'Time'}, inplace=True)
         data['Time'] = (data['Time'] - data['Time'].min() ) * 100 / (data['Time'].max() - data['Time'].min()) / 100
-
+        
+        if need_dev_net_packet:
+            if is_merge == True:
+                data = dev_net_packet(cfg,data,lr_cfg,app_info[1])
+            else:
+                data = dev_net_packet(cfg,data,lr_cfg,app_info[2])
+            
+        
         if len(select_columns) == 0:
             metric_count =  len(data.columns) - 1
         else:
             metric_count = len(select_columns)
-        sq = int(math.sqrt(metric_count))
-        higth_count = sq if sq * sq >= metric_count else sq + 1
-        width_count = sq if (sq + 1) * sq > metric_count else sq + 1
-    
-        title_space = fig_size_higth * title_space_rate
-        bottom_space = fig_size_higth * bottom_space_rate
-        left_space = fig_size_width * left_space_rate
-        higth = ( fig_size_higth - title_space - bottom_space) / higth_count
-        width = ( fig_size_width - left_space ) / width_count
-        
-        higth_spacing = 0.25 * higth
-        width_spacing = 0.2 * width
-        
-        rects_local = []
-        for j in range(1,higth_count+1):
-            for i in range(1,width_count+1):
-                x = ( ( i - 1 ) % width_count ) * width
-                y = fig_size_higth - (( ( j - 1 ) % higth_count ) + 1 ) * higth
-                rects_local.append(
-                    ( (x + left_space) / fig_size_width,
-                      (y - title_space) / fig_size_higth, 
-                     (width -  width_spacing) / fig_size_width,
-                     (higth - higth_spacing)  / fig_size_higth
-                ))
+
+        rects_local,width_count,higth_count = split_rects(obj_count=metric_count,
+                                  fig_size_width=fig_size_width,
+                                  fig_size_higth = fig_size_higth,
+                                  title_space_rate=title_space_rate,
+                                  bottom_space_rate=bottom_space_rate,
+                                  left_space_rate=left_space_rate)
 
         if len(select_columns) == 0:
             columns = data.columns[1:]
@@ -554,9 +737,15 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
             ax_hist.set_xlabel("Data Points", fontsize=fontsize_set-2)
 
         if is_merge == True:
-            app = app_info[1]
+            if merge_workload == True: 
+                app = app_info[1]
+            else:
+                app = f'{app_info[1]}_{app_info[2]}'
         else:
-            app = f'{app_info[2]}_{app_info[0]}'
+            if merge_workload == True: 
+                app = f'{app_info[2]}_{app_info[0]}'
+            else:
+                app = f'{app_info[2]}_{app_info[3]}_{app_info[0]}'
             
         plt.suptitle(f"{app} metirc", fontsize=fontsize_set+4)
 
@@ -569,6 +758,156 @@ def draw_preview_chart(cfg,data,need_dev_net_packet=False,fig_size_width=24,fig_
         else:
             fig.savefig(f'{dir}/{app}.png', dpi=200)
         plt.close(fig)
+
+
+def split_rects(obj_count,fig_size_width=24,fig_size_higth = 16,title_space_rate=0.03,bottom_space_rate=0.05,left_space_rate=0.05):
+    sq = int(math.sqrt(obj_count))
+    higth_count = sq if sq * sq >= obj_count else sq + 1
+    width_count = sq if (sq + 1) * sq > obj_count else sq + 1
+
+    title_space = fig_size_higth * title_space_rate
+    bottom_space = fig_size_higth * bottom_space_rate
+    left_space = fig_size_width * left_space_rate
+    higth = ( fig_size_higth - title_space - bottom_space) / higth_count
+    width = ( fig_size_width - left_space ) / width_count
+    
+    higth_spacing = 0.25 * higth
+    width_spacing = 0.2 * width
+    
+    rects_local = []
+    for j in range(1,higth_count+1):
+        for i in range(1,width_count+1):
+            x = ( ( i - 1 ) % width_count ) * width
+            y = fig_size_higth - (( ( j - 1 ) % higth_count ) + 1 ) * higth
+            rects_local.append(
+                ( (x + left_space) / fig_size_width,
+                  (y - title_space) / fig_size_higth, 
+                 (width -  width_spacing) / fig_size_width,
+                 (higth - higth_spacing)  / fig_size_higth
+            ))
+    return rects_local,width_count,higth_count
+
+
+def compare(cfg,select_columns=[],fig_size_width=24,fig_size_higth = 16,fontsize_set = 18,subtitle_width = 25,suby_label_width=25,subhist_buckets = 20,title_space_rate=0.03,bottom_space_rate=0.05,left_space_rate=0.05,sub_dir='data'):
+    pic_dir=cfg['config']['output_dir']
+
+    units = {}
+    for v in cfg['metric_remap']:
+        units[v['rename']] = v['unit']
+    
+    test_type = "no_stress"
+    dfnone,drop_columns  = read_all_in_one_data(cfg,raw_data_file_path = cfg["config"]["compare"][test_type]["input_file_csv"],raw_time_splits_path = cfg["config"]["compare"][test_type]["input_file_json"])
+    dfnone,infos = metric_aggregate(cfg,dfnone)
+    dfnone = dfnone.groupby(['data_count','app','app_remap','workload']).mean().reset_index()
+    for m,v in infos.items():
+        units[m]=v['unit']
+    
+    
+    test_type = "cpu_stress"
+    dfcpu,drop_columns  = read_all_in_one_data(cfg,raw_data_file_path = cfg["config"]["compare"][test_type]["input_file_csv"],raw_time_splits_path = cfg["config"]["compare"][test_type]["input_file_json"])
+    dfcpu,infos = metric_aggregate(cfg,dfcpu)
+    dfcpu = dfcpu.groupby(['data_count','app','app_remap','workload']).mean().reset_index()
+    for m,v in infos.items():
+        units[m]=v['unit']
+    
+    test_type = "mem_stress"
+    dfmem,drop_columns  = read_all_in_one_data(cfg,raw_data_file_path = cfg["config"]["compare"][test_type]["input_file_csv"],raw_time_splits_path = cfg["config"]["compare"][test_type]["input_file_json"])
+    dfmem,infos = metric_aggregate(cfg,dfmem)
+    dfmem = dfmem.groupby(['data_count','app','app_remap','workload']).mean().reset_index()
+    for m,v in infos.items():
+        units[m]=v['unit']
+    
+    df = pd.concat([dfnone, dfcpu,dfmem], ignore_index=True).drop(columns=['data_count','app'])
+
+    normalize = cfg['config']['normalize_y']
+    ymax = {}
+    for column in df.columns:
+        ymax[column] = df[column].max()
+        
+    grouped = df.groupby(['app_remap','workload'])
+
+      
+    for app_info,group in grouped:
+        # 预处理
+        x_column_index = 'Time'
+        data = group.drop(columns=['app_remap','workload']) 
+        data = data.sort_values(by=x_column_index)
+        data = data.reset_index(drop=True)
+        data[x_column_index] = (data[x_column_index] - data[x_column_index].min() ) * 100 / (data[x_column_index].max() - data[x_column_index].min()) / 100
+
+        if len(select_columns) == 0:
+            metric_count =  len(data.columns) - 1
+        else:
+            metric_count = len(select_columns)
+
+        rects_local,width_count,higth_count = split_rects(obj_count=metric_count,
+                                  fig_size_width=fig_size_width,
+                                  fig_size_higth = fig_size_higth,
+                                  title_space_rate=title_space_rate,
+                                  bottom_space_rate=bottom_space_rate,
+                                  left_space_rate=left_space_rate)
+
+        if len(select_columns) == 0:
+            columns = data.columns[1:]
+        else:
+            columns = select_columns
+        
+        fig = plt.figure(figsize=(fig_size_width,fig_size_higth))
+        for k,column in enumerate(columns): 
+            r_x,r_y,r_width,r_higth = rects_local[k]
+            time_series = (r_x,r_y, r_width,r_higth*0.9)
+            ax_series =  fig.add_axes(time_series)
+    
+            # 时序图
+            wrapped_title = textwrap.fill(column, width=subtitle_width)
+            ax_series.set_title(wrapped_title, fontsize=fontsize_set)
+            if column in [cfg['workload_metric'],"qps","p95_lantency"]:
+                linewidth = 5
+                markersize = 8
+                color = "red" 
+            else:
+                linewidth = 2
+                markersize = 5
+                color = "#717d7e"
+            
+            ax_series.plot(data[x_column_index], data[column], color=color,  marker='o', markersize=5, linestyle='-', linewidth=linewidth)
+            ax_series.set_xlim(0, 1.0)
+            maxY = 0
+            if normalize == "true":
+                maxY = ymax[column]
+            else:
+                maxY = data[column].max()
+
+            if maxY == 0:
+                maxY = 1
+            ax_series.set_ylim(0, maxY)
+            ax_series.tick_params(labelsize=fontsize_set-4, width=2, length=4, grid_linestyle=':')
+            ax_series.grid()
+
+            if ((k+1) / width_count - higth_count + 1) > 0:
+                ax_series.set_xlabel('Stress Enhance', fontsize=fontsize_set-2, labelpad=15)
+
+            # ax_series.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+            ax_series.ticklabel_format(axis='y', style='sci', scilimits=(0,4))
+
+            wrapped_y_label = textwrap.fill(units[column], width=suby_label_width)
+            ax_series.set_ylabel(wrapped_y_label, fontsize=fontsize_set-2, labelpad=15)
+            
+        app = f'{app_info[1]}_{app_info[0]}'
+            
+        plt.suptitle(f"{app} metirc", fontsize=fontsize_set+4)
+
+        dir = f'{pic_dir}/{sub_dir}'
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+            
+        fig.savefig(f'{dir}/{app}.png', dpi=200)
+        plt.close(fig)
+
+
+
+    
+    
 
 
 def all_in_one():

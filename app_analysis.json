@@ -3,25 +3,55 @@
         "input_file_csv": "data/20230721/2023_07_21_all.csv",
         "input_file_json": "data/20230721/2023_07_21_all.json",
         "output_dir": "data/20230817-aly",
+        "compare": {
+            "no_stress":{
+              "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            },  
+            "cpu_stress":{
+              "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            },
+            "mem_stress": {
+                "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            }
+        },
         "normalize_y": "true",
         "filter": {
             "min_threshold": 0.15,
             "max_threshold": 0.90
         },
         "drop_un_remap": "true",
+        "load_balancing": {
+            "method": "linear_regression",
+            "mean": {
+                "base": 0.01
+            },
+            "linear_regression": {
+                "use_a_b": "true"
+            }
+        },
+        "load_balancing_compare": {
+            "select_workload": "quick"
+        },
         "metric_extra": [
             "san",
             "avg",
             "std",
-            "p99"
+            "p99",
+            "cos",
+            "euc"
         ]
     },
+    "apps_name_need_split": "false",
     "apps": ["memcached", "redis", "nginx", "kafka", "hibench", "elasticsearch", "keydb", "clickhouse"],
     "apps_remap": {
         "#memcached": "kv store",
         "#redis": "kv store",
         "#keydb": "kv store"
     },
+    "drop_apps":["memcached", "redis", "nginx", "kafka", "hibench", "keydb", "clickhouse"],
     "workload_metric": "Network Receive Packet",
     "metric_need_dev_workload":[
         "CPU System Time",
@@ -45,6 +75,11 @@
         "vm_block_io_bytes_write",
         "vm_block_io_requests_write",
         "vm_block_io_requests_read"
+    ],
+    "metric_excel_extra":[
+        "CPU System Time",
+        "CPU User Time",
+        "CPU Time"
     ],
     "metric_remap": [
         {
