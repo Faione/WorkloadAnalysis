@@ -1,0 +1,76 @@
+files:
+    no_stress:
+        data: data/standard_stress_no_1696646256/merged.csv
+        config: data/standard_stress_no_1696646256/date.json
+        qos: {} 
+        #     p95: addition.metric.p95_latency
+        #     qps: addition.metric.qps
+        stress: {}
+    mem_stress:
+        data: data/standard_stress_mem_1696451922/merged.csv
+        config: data/standard_stress_mem_1696451922/date.json
+        qos: {}
+        #     p95: addition.metric.p95_latency
+        #     qps: addition.metric.qps
+        stress:
+            mem_stress: addition.stress.mem.memrate
+    cpu_stress:
+        data: data/standard_stress_cpu_1696307018/merged.csv
+        config: data/standard_stress_cpu_1696307018/date.json
+        qos: {} 
+        #     p95: addition.metric.p95_latency
+        #     qps: addition.metric.qps
+        stress:
+            cpu_stress: addition.stress.cpu.cpu
+            cpu_load_stress: addition.stress.cpu.cpu-load
+output_dir: data/test
+
+pre_deal:
+    config_time_unit: s
+    additions:
+        infos:
+            # metric name : default value
+            app: ""
+            workload: "unknow"
+            count: 0
+        metrics: {}
+            # metric name : default value
+            # p95: 0
+            # qps: 0
+        stress:
+            mem_stress: 0
+            cpu_stress: 0
+            cpu_load_stress: 0
+    filter:
+        select_epoch:
+            all: "true"
+            epoch: 1
+        metric:
+            method: keep
+            drop_metric_regexs:
+                - .*host.*syscall.*
+            keep_metric_regexs: 
+                - vm_(?!hypervisor)*
+                - app.*
+                - .*host.*
+        time:
+            method: select_apps
+            time_range:
+                start_time: 1695597616000
+                end_time: 1695608266000
+            select_apps: 
+                - "redis"
+            select_workloads: 
+                app: "redis"
+                workload:
+                    - "unknow"
+
+portrait:
+    extra_metric_regexs:
+        - .*
+    base_metric:
+        - avg
+        - std
+    remap: 
+        cpu:
+            m1: 指标1

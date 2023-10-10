@@ -25,7 +25,7 @@
         {
             "datasource": {
                 "type": "prometheus",
-                "uid": "eb610732-db7c-4ee6-b2f0-f0f27538821a"
+                "uid": "master_prometheus"
             },
             "fieldConfig": {
                 "defaults": {
@@ -116,8 +116,8 @@
     },
     "timepicker": {},
     "timezone": "",
-    "title": "ALL IN ONE!",
-    "uid": "dbdcedb4-39e0-4da6-9414-03050e8e7e3f",
+    "title": "all in one",
+    "uid": "aio",
     "version": 1,
     "weekStart": ""
 }
