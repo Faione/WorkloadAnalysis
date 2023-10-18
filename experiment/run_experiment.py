@@ -12,18 +12,37 @@ import generator
 
 import prometheus
 import grafana
+import config_parser
 
 import yaml
 import logging
+import argparse
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # yaml range to range
 def yrange_to_range(yrange):
-    if "start" in yrange and "end" in yrange and "step" in yrange:
-        return range(yrange["start"], yrange["end"], yrange["step"])
-    return yrange
+    range_list = []
+    if isinstance(yrange, list):
+        range_list = yrange
+    elif isinstance(yrange, dict) and "end" in yrange: 
+        end = yrange["end"]
+        start = 0
+        step = 1
+        f = None
+        if "start" in yrange:
+            start = yrange["start"]
+        if "step" in yrange:
+            step = yrange["step"]
+        if "map" in yrange:
+            f = eval(yrange["map"])
+        range_list = list(range(start, end, step)) if f is None else [f(i) for i in range(start, end, step)]
+
+    if len(range_list) == 0:
+        logging.warning("yrange format invalid or empty")
+    return range_list
 
 def exp_from_yaml(data):
     exp = experiment.Experiment(**data["raw"])
@@ -66,10 +85,11 @@ def stress_exec_from_yaml(data):
     return executor.StressExecutor(**data["raw"])
 
 
-
-if __name__ == '__main__':    
+def run_exp(exp_yaml):
+    
     DEFAULT_OPT_INTERVAL = 60
-    with open("experiment.yaml", 'r') as f:
+    
+    with open(exp_yaml, 'r') as f:
         file_data = f.read()    
         # cfg = yaml.load(file_data, yaml.FullLoader)
         cfg = yaml.load(file_data)
@@ -132,3 +152,9 @@ if __name__ == '__main__':
     df = pclient.targets_to_df(targets, exp.start_time, exp.end_time, step)
     print(df.info())
     df.to_csv(os.path.join(dir_path, cfg["collect"]["save_file"]))
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-f', '--config', type=str, help='experiment config path')
+    args = parser.parse_args()
+    run_exp(args.config)

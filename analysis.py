@@ -350,3 +350,86 @@ def all_metrics_list(cfg):
         for column in data.columns:
             print(f'"{column}",')
         break
+
+
+def compare(cfg,select_columns=[],fig_size_width=24,fig_size_higth = 16,fontsize_set = 18,subtitle_width = 25,suby_label_width=25,subhist_buckets = 20,title_space_rate=0.03,bottom_space_rate=0.05,left_space_rate=0.05,sub_dir='data'):
+    
+    grouped = df.groupby(['app_remap','workload'])
+
+    
+    for app_info,group in grouped:
+        # 预处理
+        x_column_index = 'Time'
+        data = group.drop(columns=['app_remap','workload']) 
+        data = data.sort_values(by=x_column_index)
+        data = data.reset_index(drop=True)
+        data[x_column_index] = (data[x_column_index] - data[x_column_index].min() ) * 100 / (data[x_column_index].max() - data[x_column_index].min()) / 100
+
+        if len(select_columns) == 0:
+            metric_count =  len(data.columns) - 1
+        else:
+            metric_count = len(select_columns)
+
+        rects_local,width_count,higth_count = split_rects(obj_count=metric_count,
+                                  fig_size_width=fig_size_width,
+                                  fig_size_higth = fig_size_higth,
+                                  title_space_rate=title_space_rate,
+                                  bottom_space_rate=bottom_space_rate,
+                                  left_space_rate=left_space_rate)
+
+        if len(select_columns) == 0:
+            columns = data.columns[1:]
+        else:
+            columns = select_columns
+        
+        fig = plt.figure(figsize=(fig_size_width,fig_size_higth))
+        for k,column in enumerate(columns): 
+            r_x,r_y,r_width,r_higth = rects_local[k]
+            time_series = (r_x,r_y, r_width,r_higth*0.9)
+            ax_series =  fig.add_axes(time_series)
+    
+            # 时序图
+            wrapped_title = textwrap.fill(column, width=subtitle_width)
+            ax_series.set_title(wrapped_title, fontsize=fontsize_set)
+            if column in [cfg['workload_metric'],"qps","p95_lantency"]:
+                linewidth = 5
+                markersize = 8
+                color = "red" 
+            else:
+                linewidth = 2
+                markersize = 5
+                color = "#717d7e"
+            
+            ax_series.plot(data[x_column_index], data[column], color=color,  marker='o', markersize=5, linestyle='-', linewidth=linewidth)
+            ax_series.set_xlim(0, 1.0)
+            maxY = 0
+            if normalize == "true":
+                maxY = ymax[column]
+            else:
+                maxY = data[column].max()
+
+            if maxY == 0:
+                maxY = 1
+            ax_series.set_ylim(0, maxY)
+            ax_series.tick_params(labelsize=fontsize_set-4, width=2, length=4, grid_linestyle=':')
+            ax_series.grid()
+
+            if ((k+1) / width_count - higth_count + 1) > 0:
+                ax_series.set_xlabel('Stress Enhance', fontsize=fontsize_set-2, labelpad=15)
+
+            # ax_series.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+            ax_series.ticklabel_format(axis='y', style='sci', scilimits=(0,4))
+
+            wrapped_y_label = textwrap.fill(units[column], width=suby_label_width)
+            ax_series.set_ylabel(wrapped_y_label, fontsize=fontsize_set-2, labelpad=15)
+            
+        app = f'{app_info[1]}_{app_info[0]}'
+            
+        plt.suptitle(f"{app} metirc", fontsize=fontsize_set+4)
+
+        dir = f'{pic_dir}/{sub_dir}'
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+            
+        fig.savefig(f'{dir}/{app}.png', dpi=200)
+        plt.close(fig)

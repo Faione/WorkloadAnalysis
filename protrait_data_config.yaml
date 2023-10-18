@@ -1,29 +1,37 @@
 files:
-    no_stress:
-        data: data/standard_stress_no_1696646256/merged.csv
-        config: data/standard_stress_no_1696646256/date.json
-        qos: {} 
-        #     p95: addition.metric.p95_latency
-        #     qps: addition.metric.qps
-        stress: {}
     mem_stress:
-        data: data/standard_stress_mem_1696451922/merged.csv
-        config: data/standard_stress_mem_1696451922/date.json
+        data: data/standard_stress_mem_20231017134036/merged.csv
+        config: data/standard_stress_mem_20231017134036/date.json
         qos: {}
         #     p95: addition.metric.p95_latency
         #     qps: addition.metric.qps
         stress:
             mem_stress: addition.stress.mem.memrate
-    cpu_stress:
-        data: data/standard_stress_cpu_1696307018/merged.csv
-        config: data/standard_stress_cpu_1696307018/date.json
-        qos: {} 
-        #     p95: addition.metric.p95_latency
-        #     qps: addition.metric.qps
-        stress:
-            cpu_stress: addition.stress.cpu.cpu
-            cpu_load_stress: addition.stress.cpu.cpu-load
-output_dir: data/test
+    # no_stress:
+    #     data: data/standard_stress_no_1696646256/merged.csv
+    #     config: data/standard_stress_no_1696646256/date.json
+    #     qos: {} 
+    #     #     p95: addition.metric.p95_latency
+    #     #     qps: addition.metric.qps
+    #     stress: {}
+    # mem_stress:
+    #     data: data/standard_stress_mem_1696451922/merged.csv
+    #     config: data/standard_stress_mem_1696451922/date.json
+    #     qos: {}
+    #     #     p95: addition.metric.p95_latency
+    #     #     qps: addition.metric.qps
+    #     stress:
+    #         mem_stress: addition.stress.mem.memrate
+    # cpu_stress:
+    #     data: data/standard_stress_cpu_1696307018/merged.csv
+    #     config: data/standard_stress_cpu_1696307018/date.json
+    #     qos: {} 
+    #     #     p95: addition.metric.p95_latency
+    #     #     qps: addition.metric.qps
+    #     stress:
+    #         cpu_stress: addition.stress.cpu.cpu
+    #         cpu_load_stress: addition.stress.cpu.cpu-load
+output_dir: data/20231018
 
 pre_deal:
     config_time_unit: s
@@ -70,7 +78,6 @@ portrait:
         - .*
     base_metric:
         - avg
-        - std
     remap: 
         cpu:
             m1: 指标1

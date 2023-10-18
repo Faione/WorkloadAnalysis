@@ -7,19 +7,13 @@ import logging
 DATE_FORMAT_TIMESTAMP = "timestamp"
 DEFAULT_DATE_FORMAT = "%Y%m%d%H%M%S" 
 
-def get_current_date(date_format):
-    timestamp = int(time.time())
-    if date_format == DATE_FORMAT_TIMESTAMP:
-        return timestamp
-    return datetime.datetime.fromtimestamp(timestamp).strftime(date_format)
-    
 # An Experiment is of three parts
 # 1. init client and server (scripts needed)
 # 2. run inference app as setting
 # 3. run client workload as setting
 # 4. save result and clear env(if needed)
 class Experiment:
-    def __init__(self, mode="", start_time=0, end_time=0, n_epoch = 0, setting_per_epoch=[], date_format = DEFAULT_DATE_FORMAT):
+    def __init__(self, mode="", start_time=0, end_time=0, n_epoch=0, setting_per_epoch=[], date_format=DEFAULT_DATE_FORMAT):
         # mode define the way to parse result from a client result
         self.mode = mode
 
@@ -31,12 +25,16 @@ class Experiment:
         # end_time is the end time of the whole experiment
         self.end_time = end_time
 
-        self.n_epoch = 0
+        self.total_time = 0
+
         # stress_per_epoch save the stress setting of each epoch
         # epoch is always the same length of each stress
         # but in each epoch there can be many workload and apps
         # and int different epoch, workload and apps must be the same, the only change is stress
         self.setting_per_epoch = setting_per_epoch
+        
+        self.n_epoch = n_epoch
+        self.__check_and_settings_epoch(n_epoch)
 
     def __stress_per_epoch(self):
         return [settings["stress"] for settings in self.setting_per_epoch]
@@ -52,27 +50,27 @@ class Experiment:
 
     # multi-stress must has the same epoch setting
     def __check_and_settings_epoch(self, max_epoch):
-        self.n_epoch = len(self.setting_per_epoch)
-        assert self.n_epoch == 0 or self.n_epoch== max_epoch, f"miss match max_epoch: cur={self.n_epoch}, target={max_epoch}"
+        n_epoch = len(self.setting_per_epoch)
+        assert n_epoch == 0 or n_epoch == max_epoch, f"miss match max_epoch: cur={n_epoch}, target={max_epoch}"
         
-        if self.n_epoch == 0:
+        if n_epoch == 0:
             self.setting_per_epoch = [{"stress": {}} for i in range(max_epoch)]
     
     def dir_name(self):
         # stress_setting
         stress = self.__stress_setting()
 
-        return f"{self.mode}_stress_{stress}_{str(self.start_time)}"
+        return f"{self.mode}_stress_{stress}_{str(self.start(DEFAULT_DATE_FORMAT))}"
 
             
     def run(self, stress_exec, workload_exec, interval=60):
         self.workloads = workload_exec.workloads()
         assert len(self.workloads) > 0, "no workloads"
 
-        self.start_time = get_current_date(self.date_format)
+        self.start_time = int(time.time())
         logging.info(f"{self.start_time} experiment start")
         for setting in self.setting_per_epoch:
-            with stress_exec as se:
+            with stress_exec as se: 
                 se.exec(**setting["stress"])
                 
                 with workload_exec as we:
@@ -80,14 +78,18 @@ class Experiment:
                         we.exec(**{"mode": self.mode, "workload": workload, "stress": setting["stress"]})
                         
             time.sleep(interval)
-        self.end_time = get_current_date(self.date_format)
+        self.end_time = int(time.time())
+        self.total_time = self.end_time - self.start_time
+        self.n_epoch = len(self.setting_per_epoch)
+        
+        logging.info(f"{self.start()} experiment end")
             
     def with_workload(self, workloads=[]):
         self.workloads = workloads
         return self
 
-    def with_epoch(self, range):
-        self.__check_and_settings_epoch(len(range))
+    def with_epoch(self, max_epoch):
+        self.__check_and_settings_epoch(max_epoch)
         return self
     
     def with_mem_stress(self, memrate_range, memrate_byte="1G"):
@@ -102,6 +104,24 @@ class Experiment:
             idx = idx + 1
         return self
 
+    def start(self, date_format=""):
+        if date_format == "":
+            date_format = self.date_format
+
+        if date_format == DATE_FORMAT_TIMESTAMP:
+            return self.start_time
+
+        return datetime.datetime.fromtimestamp(self.start_time).strftime(date_format)
+        
+    def end(self, date_format=""):
+        if date_format == "":
+            date_format = self.date_format
+
+        if date_format == DATE_FORMAT_TIMESTAMP:
+            return self.start_time
+
+        return datetime.datetime.fromtimestamp(self.end_time).strftime(date_format)
+        
     def with_cpu_stress(self, cpu_range, cpuload_range):
         self.__check_and_settings_epoch(len(cpu_range) * len(cpuload_range))
 
