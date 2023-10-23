@@ -13,7 +13,7 @@ DEFAULT_DATE_FORMAT = "%Y%m%d%H%M%S"
 # 3. run client workload as setting
 # 4. save result and clear env(if needed)
 class Experiment:
-    def __init__(self, mode="", start_time=0, end_time=0, n_epoch=0, setting_per_epoch=[], date_format=DEFAULT_DATE_FORMAT):
+    def __init__(self, mode="", start_time=0, end_time=0, n_epoch=0, date_format=DEFAULT_DATE_FORMAT):
         # mode define the way to parse result from a client result
         self.mode = mode
 
@@ -26,84 +26,90 @@ class Experiment:
         self.end_time = end_time
 
         self.total_time = 0
-
-        # stress_per_epoch save the stress setting of each epoch
-        # epoch is always the same length of each stress
-        # but in each epoch there can be many workload and apps
-        # and int different epoch, workload and apps must be the same, the only change is stress
-        self.setting_per_epoch = setting_per_epoch
         
         self.n_epoch = n_epoch
-        self.__check_and_settings_epoch(n_epoch)
 
-    def __stress_per_epoch(self):
-        return [settings["stress"] for settings in self.setting_per_epoch]
+    def __run_with_stress(self, workload_exec, stress_exec, interval):
+        info_per_workload = {}
+        info_per_epoch = []
         
-    def __stress_setting(self):
-        stress_per_epoch = self.__stress_per_epoch()
+        epoch_n = 0
+        for stress_flag in stress_exec.iter():
+            with stress_exec as se:
+                stress_info = se.exec(flag=stress_flag)
+                
+                workload_n = 0
+                epoch_infos = {"stress": stress_info}
+                for workload_flag in workload_exec.iter():
+                    workload_name = f"{workload_exec.workload_name}_{workload_n}"
+                    with workload_exec as we:
+                        workload_info = we.exec(flag=workload_flag)
+                        workload_info["name"] = workload_name
+                        workload_info["addition"] = {"stress": stress_info}
+                    if workload_name not in info_per_workload:
+                        info_per_workload[workload_name] = {"info_per_epoch": [workload_info]}
+                    else:
+                        info_per_workload[workload_name]["info_per_epoch"].append(workload_info)
+
+                    epoch_infos[workload_name] = workload_info
+                    workload_n = workload_n + 1
+            info_per_epoch.append(epoch_infos)
+            epoch_n = epoch_n + 1
+            time.sleep(interval)
+
+        return info_per_workload, info_per_epoch
+        
+        
+    def run(self, workload_exec, stress_exec, interval=60):
+        assert workload_exec != None
+        assert self.n_epoch != 0 or stress_exec != None
+
+        info_per_workload = {}
+        info_per_epoch = []
+        
+        
+        self.start_time = int(time.time())
+        logging.info(f"{self.start_time} experiment start") 
+
+        if stress_exec != None:
+           info_per_workload, info_per_epoch = self.__run_with_stress(workload_exec, stress_exec, interval)
+        else:
+            for epoch_n in range(0, self.n_epoch):
+                workload_n = 0
+                epoch_infos = {}
+                for workload_flag in workload_exec.iter():
+                    workload_name = f"{workload_exec.workload_name}_{workload_n}"
+                    
+                    with workload_exec as we:
+                        workload_info = we.exec(flag=workload_flag)
+                        workload_info["name"] = workload_name
+                        workload_info["addition"] = {}
+
+                    if workload_name not in info_per_workload:
+                        info_per_workload[workload_name] = {"info_per_epoch": [workload_info]}
+                    else:
+                        info_per_workload[workload_name]["info_per_epoch"].append(workload_info)
+
+                    epoch_infos[workload_name] = workload_info
+                    workload_n = workload_n + 1
+                info_per_epoch.append(epoch_infos)
+                epoch_n = epoch_n + 1
+        
+        self.end_time = int(time.time())
+        logging.info(f"{self.start()} experiment end")
+        self.total_time = self.end_time - self.start_time 
+        self.info_per_workload = info_per_workload
+        self.info_per_epoch = info_per_epoch
+        
+    def dir_name(self):
+        assert self.info_per_epoch != {}
 
         stress = "no"
-        if len(stress_per_epoch) != 0 and stress_per_epoch[0] != {}:
-            stress = '_'.join(stress_per_epoch[0].keys())
-
-        return stress
-
-    # multi-stress must has the same epoch setting
-    def __check_and_settings_epoch(self, max_epoch):
-        n_epoch = len(self.setting_per_epoch)
-        assert n_epoch == 0 or n_epoch == max_epoch, f"miss match max_epoch: cur={n_epoch}, target={max_epoch}"
-        
-        if n_epoch == 0:
-            self.setting_per_epoch = [{"stress": {}} for i in range(max_epoch)]
-    
-    def dir_name(self):
-        # stress_setting
-        stress = self.__stress_setting()
+        if "stress" in self.info_per_epoch[0]:
+            stress = "_".join(list(self.info_per_epoch[0]["stress"].keys()))
 
         return f"{self.mode}_stress_{stress}_{str(self.start(DEFAULT_DATE_FORMAT))}"
-
-            
-    def run(self, stress_exec, workload_exec, interval=60):
-        self.workloads = workload_exec.workloads()
-        assert len(self.workloads) > 0, "no workloads"
-
-        self.start_time = int(time.time())
-        logging.info(f"{self.start_time} experiment start")
-        for setting in self.setting_per_epoch:
-            with stress_exec as se: 
-                se.exec(**setting["stress"])
-                
-                with workload_exec as we:
-                    for workload in self.workloads:
-                        we.exec(**{"mode": self.mode, "workload": workload, "stress": setting["stress"]})
-                        
-            time.sleep(interval)
-        self.end_time = int(time.time())
-        self.total_time = self.end_time - self.start_time
-        self.n_epoch = len(self.setting_per_epoch)
-        
-        logging.info(f"{self.start()} experiment end")
-            
-    def with_workload(self, workloads=[]):
-        self.workloads = workloads
-        return self
-
-    def with_epoch(self, max_epoch):
-        self.__check_and_settings_epoch(max_epoch)
-        return self
     
-    def with_mem_stress(self, memrate_range, memrate_byte="1G"):
-        self.__check_and_settings_epoch(len(memrate_range))
-        
-        idx = 0
-        for rate in memrate_range:
-            self.setting_per_epoch[idx]["stress"]["mem"] = {
-                "memrate": rate,
-                "memrate-bytes": memrate_byte,
-            }
-            idx = idx + 1
-        return self
-
     def start(self, date_format=""):
         if date_format == "":
             date_format = self.date_format
@@ -121,19 +127,6 @@ class Experiment:
             return self.start_time
 
         return datetime.datetime.fromtimestamp(self.end_time).strftime(date_format)
-        
-    def with_cpu_stress(self, cpu_range, cpuload_range):
-        self.__check_and_settings_epoch(len(cpu_range) * len(cpuload_range))
-
-        idx = 0
-        for cpu in cpu_range:
-            for cpuload in cpuload_range:
-                self.setting_per_epoch[idx]["stress"]["cpu"] = {
-                    "cpu": cpu,
-                    "cpu-load": cpuload,
-                }
-                idx = idx + 1
-        return self
 
 class Executor:
     

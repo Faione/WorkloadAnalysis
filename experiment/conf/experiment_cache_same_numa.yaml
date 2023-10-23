@@ -1,4 +1,4 @@
-default_opt_interval: 16
+default_opt_interval: 0
 data_root: "/home/fhl/Workplace/Python/appProfile/data"
 
 workload_exec:
@@ -14,11 +14,22 @@ workload_exec:
         workload_name: "redis"
         warmup_cmd: "docker exec -it redis-client-1 memtier_benchmark -s envoy --test-time 10"
     
+stress_exec:
+    flags:
+        "--cache":
+            start: 0
+            end: 6
+            map: "lambda x: 2**x"
+    raw:
+        cmd_base: "ssh fhl@worknode-01 sudo podman run"
+        flag_base: "-d --rm --cpuset-cpus 40-59,125-139 localhost/my-stress-ng:v0.1"
+        stop_cmd: "ssh fhl@worknode-01 sudo podman stop"
+        type: "cache"
+    
 experiment:
     raw:
         mode: "standard"
         date_format: "timestamp"
-        n_epoch: 1
     save_file: "exp.json"
 
 collect:

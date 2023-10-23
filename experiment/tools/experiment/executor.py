@@ -3,8 +3,15 @@ import sys
 import time
 import experiment
 import logging
+import generator
 
 DEFAUTL_OPT_INTERVAL=60
+
+# support for python below 3.9
+def _removeprefix(s, chars):
+    if s.startswith(chars):
+        return s[len(chars):]
+    return s
 
 def run_shell(cmd):
     if cmd == "":
@@ -19,64 +26,74 @@ class DummyExecutor(experiment.Executor):
         self.opt_interval = opt_interval
         self.name = name
 
-class StressExecutor(experiment.Executor):
+class StressExecutor(experiment.Executor, generator.Flags):
     
-    def __init__(self, workerdo="", run_cmd={}, stop_cmd="", name="stress_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
-        super().__init__(name, opt_interval)
-        self.workerdo = workerdo
-        self.run_cmd = run_cmd
+    def __init__(self, cmd_base="", flag_base="", stop_cmd="", type="", name="stress_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
+        experiment.Executor.__init__(self, name, opt_interval)
+        generator.Flags.__init__(self, flag_base)
+        
+        self.cmd_base = cmd_base
         self.stop_cmd = stop_cmd
-        self.stress_containers = []
-    
+        self.type = type
+        self.runnig  = False
+        
+    def stress_info(self, flag):
+        if flag == "":
+            return {}
+
+        flaglist = _removeprefix(flag, self.flag_base).split()
+        flags = {}
+        for i in range(0, len(flaglist), 2):
+            k = _removeprefix(flaglist[i], "--")
+            v = flaglist[i+1]
+            flags[k] = v
+        return flags
+        
+        
     def do_exec(self, **kwargs):
-        stress_containers = []
-        for tp, val in kwargs.items():
-            app_flag_str = " ".join([" ".join(["--" + str(k), str(v)]) for k, v in val.items()])
-            cmd = " ".join([self.workerdo, self.run_cmd[tp], app_flag_str])
-            run_shell(cmd)
-            stress_containers.append(f"stress_{tp}")
-        self.stress_containers = stress_containers
+        flag = ""
+        if "flag" in kwargs:
+            flag = kwargs["flag"]
+        
+        self.runnig  = False
+        run_shell(f"{self.cmd_base} --name stress_{self.type} {flag}")
+        self.runnig  = True
+        return {self.type: self.stress_info(flag)}
+
     
     def do_epilogue(self):
-        for container in self.stress_containers:
-            cmd = " ".join([self.workerdo, self.stop_cmd, container])
-            run_shell(cmd)
-            
-class WorkloadExecutor(experiment.Executor):
+        if self.runnig:
+            run_shell(f"{self.stop_cmd} stress_{self.type}")
+
+class WorkloadExecutor(experiment.Executor, generator.Flags):
     
-    def __init__(self, run_cmd, warmup_cmd, name="workload_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
-        super().__init__(name, opt_interval)
-        self.info_per_workload = {}
-        for k,v in run_cmd.items():
-            info  = {
-                "run_cmd": v,
-                "info_per_epoch": []
-            }
-            self.info_per_workload[k] = info
+    def __init__(self, cmd_base="", flag_base="", workload_name="", warmup_cmd="", name="workload_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
+        experiment.Executor.__init__(self, name, opt_interval)
+        generator.Flags.__init__(self, flag_base)
+
+        self.cmd_base = cmd_base
+        self.workload_name = workload_name
         self.warmup_cmd= warmup_cmd
         
-    def workloads(self):
-        assert len(self.info_per_workload) > 0, "no workload setted"
-        return list(self.info_per_workload.keys())
-    
-    def do_exec(self, **kwargs):
-        assert "workload" in kwargs, "no workload select"
-        workload = kwargs["workload"]
-        assert workload in self.info_per_workload, "invalid workload"
-        
-        info = {"addition":{}}
-        if "stress" in kwargs:
-            info["addition"]["stress"] = kwargs["stress"]
-        
-        run_shell(self.warmup_cmd)
-        info["start_time"] = int(time.time()) 
-        run_shell(self.info_per_workload[workload]["run_cmd"])
-        info["end_time"] = int(time.time())
-        
-        
-        self.info_per_workload[workload]["info_per_epoch"].append(info)
-        
+    def iter(self):
+        flags = self.flag_list()
+        assert len(flags) > 0, "no workload setted"
+            
+        for flag in flags:
+            yield flag 
 
+    def do_exec(self, **kwargs):
+        flag = ""
+        if "flag" in kwargs:
+            flag = kwargs["flag"]
+
+        run_shell(self.warmup_cmd)
+        info = {}
+        info["start_time"] = int(time.time()) 
+        info["run_cmd"] = f"{self.cmd_base} {flag}"
+        run_shell(info["run_cmd"])
+        info["end_time"] = int(time.time())
+        return info
         
     
         

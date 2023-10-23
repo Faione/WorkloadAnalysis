@@ -44,46 +44,32 @@ def yrange_to_range(yrange):
         logging.warning("yrange format invalid or empty")
     return range_list
 
+def to_flag_val(val):
+    if not isinstance(val, list) and not isinstance(val, dict):
+        return [val]
+    else:
+        return yrange_to_range(val)
+
 def exp_from_yaml(data):
-    exp = experiment.Experiment(**data["raw"])
-
-    if "settings" in data:
-        settings = data["settings"]
-        if "stress" in settings:
-            stress = settings["stress"]
-            if "cpu" in stress:
-                cpu = stress["cpu"]
-                exp.with_cpu_stress(
-                    cpu_range = yrange_to_range(cpu["cpu_range"]),
-                    cpuload_range = yrange_to_range(cpu["cpuload_range"]),
-                )
-            if "mem" in stress:
-                mem = stress["mem"]
-                exp.with_mem_stress(
-                    memrate_range = yrange_to_range(mem["memrate_range"]),
-                    memrate_byte = mem["memrate_byte"],
-                )
-    
-    return exp
-
-def workload_from_yaml(data):
-    workload = generator.Workload(**data["raw"])
-    for flag, value in data["flags"].items():
-        if flag == "-t":
-            workload.with_flag(
-                flag, yrange_to_range(value)
-            )
-        else:
-            workload.with_flag(flag, [value])
-            
-    return workload
+    return experiment.Experiment(**data["raw"])
     
 def workload_exec_from_yaml(data):
-    return executor.WorkloadExecutor(**data["raw"])
+    wexe = executor.WorkloadExecutor(**data["raw"])
+
+    if "flags" in data:
+        for k,v in data["flags"].items():
+            wexe.with_flag(k, to_flag_val(v))
+            
+    return wexe
 
 def stress_exec_from_yaml(data):
-    return executor.StressExecutor(**data["raw"])
+    sexe = executor.StressExecutor(**data["raw"])
 
+    if "flags" in data:
+        for k,v in data["flags"].items():
+            sexe.with_flag(k, to_flag_val(v))
+            
+    return sexe
 
 def run_exp(exp_yaml):
     
@@ -97,18 +83,19 @@ def run_exp(exp_yaml):
     if "default_opt_interval" in cfg:
         DEFAULT_OPT_INTERVAL = cfg["default_opt_interval"]
     
-    workload = workload_from_yaml(cfg["workload"])
-    cfg["workload_exec"]["raw"]["run_cmd"] = workload.build()
-    
     if "opt_interval" not in cfg["workload_exec"]:
         cfg["workload_exec"]["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL
     
-    if "opt_interval" not in cfg["stress_exec"]:
+    if "stress_exec" in cfg and "opt_interval" not in cfg["stress_exec"]:
         cfg["stress_exec"]["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL
 
     exp = exp_from_yaml(cfg["experiment"])
     workload_exec = workload_exec_from_yaml(cfg["workload_exec"])
-    stress_exec = stress_exec_from_yaml(cfg["stress_exec"])
+    stress_exec = None
+    if "stress_exec" in cfg:
+        stress_exec = stress_exec_from_yaml(cfg["stress_exec"])
+        
+    
     exp.run(stress_exec=stress_exec, workload_exec=workload_exec, interval=DEFAULT_OPT_INTERVAL)
     
     data_root = cfg["data_root"]
@@ -116,12 +103,11 @@ def run_exp(exp_yaml):
     dir_path = os.path.join(data_root, exp.dir_name())
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
-    
+
+    exp_dict = exp.__dict__
+    exp_dict["conf"] = exp_yaml
     with open(os.path.join(dir_path, cfg["experiment"]["save_file"]), 'w') as f:
-        json.dump(exp.__dict__, f)
-    
-    with open(os.path.join(dir_path, cfg["workload_exec"]["save_file"]), 'w') as f:
-        json.dump(workload_exec.info_per_workload, f)
+        json.dump(exp_dict, f)
 
     ## Collet Data
     grafana_auth = cfg["collect"]["grafana"]["auth"]

@@ -5,10 +5,7 @@ workload_exec:
     flags:
         "-s": "envoy"
         "--test-time": 160
-        "-t":
-            start: 0
-            end: 9
-            map: "lambda x: 2**x"
+        "-t": [100]
     raw:
         cmd_base: "docker exec -it redis-client-1 memtier_benchmark"
         workload_name: "redis"
