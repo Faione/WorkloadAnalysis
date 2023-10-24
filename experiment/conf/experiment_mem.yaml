@@ -1,3 +1,5 @@
+;'
+
 default_opt_interval: 16
 data_root: "/home/fhl/Workplace/Python/appProfile/data"
 
@@ -13,7 +15,7 @@ workload_exec:
     
 stress_exec:
     flags:
-        "--memrate_range":
+        "--memrate":
             start: 1
             end: 20
             step: 1

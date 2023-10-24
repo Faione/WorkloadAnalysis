@@ -40,6 +40,7 @@ class Experiment:
                 
                 workload_n = 0
                 epoch_infos = {"stress": stress_info}
+                workload_infos = {}
                 for workload_flag in workload_exec.iter():
                     workload_name = f"{workload_exec.workload_name}_{workload_n}"
                     with workload_exec as we:
@@ -51,12 +52,13 @@ class Experiment:
                     else:
                         info_per_workload[workload_name]["info_per_epoch"].append(workload_info)
 
-                    epoch_infos[workload_name] = workload_info
+                    workload_infos[workload_name] = workload_info
                     workload_n = workload_n + 1
+            epoch_infos["workloads"] = workload_infos
             info_per_epoch.append(epoch_infos)
             epoch_n = epoch_n + 1
             time.sleep(interval)
-
+        self.n_epoch = epoch_n
         return info_per_workload, info_per_epoch
         
         
@@ -67,7 +69,6 @@ class Experiment:
         info_per_workload = {}
         info_per_epoch = []
         
-        
         self.start_time = int(time.time())
         logging.info(f"{self.start_time} experiment start") 
 
@@ -77,6 +78,7 @@ class Experiment:
             for epoch_n in range(0, self.n_epoch):
                 workload_n = 0
                 epoch_infos = {}
+                workload_infos = {}
                 for workload_flag in workload_exec.iter():
                     workload_name = f"{workload_exec.workload_name}_{workload_n}"
                     
@@ -90,8 +92,9 @@ class Experiment:
                     else:
                         info_per_workload[workload_name]["info_per_epoch"].append(workload_info)
 
-                    epoch_infos[workload_name] = workload_info
+                    workload_infos[workload_name] = workload_info
                     workload_n = workload_n + 1
+                epoch_infos["workloads"] = workload_infos
                 info_per_epoch.append(epoch_infos)
                 epoch_n = epoch_n + 1
         

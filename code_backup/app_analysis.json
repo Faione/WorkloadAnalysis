@@ -1,0 +1,296 @@
+{
+    "config": {
+        "input_file_csv": "data/20230721/2023_07_21_all.csv",
+        "input_file_json": "data/20230721/2023_07_21_all.json",
+        "output_dir": "data/20230817-aly",
+        "compare": {
+            "no_stress":{
+              "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            },  
+            "cpu_stress":{
+              "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            },
+            "mem_stress": {
+                "input_file_csv": "data/20230721/2023_07_21_all.csv",
+              "input_file_json": "data/20230721/2023_07_21_all.json"
+            }
+        },
+        "normalize_y": "true",
+        "filter": {
+            "min_threshold": 0.15,
+            "max_threshold": 0.90
+        },
+        "drop_un_remap": "true",
+        "load_balancing": {
+            "method": "linear_regression",
+            "mean": {
+                "base": 0.01
+            },
+            "linear_regression": {
+                "use_a_b": "true"
+            }
+        },
+        "load_balancing_compare": {
+            "select_workload": "quick"
+        },
+        "metric_extra": [
+            "san",
+            "avg",
+            "std",
+            "p99",
+            "cos",
+            "euc"
+        ]
+    },
+    "apps_name_need_split": "false",
+    "apps": ["memcached", "redis", "nginx", "kafka", "hibench", "elasticsearch", "keydb", "clickhouse"],
+    "apps_remap": {
+        "#memcached": "kv store",
+        "#redis": "kv store",
+        "#keydb": "kv store"
+    },
+    "drop_apps":["memcached", "redis", "nginx", "kafka", "hibench", "keydb", "clickhouse"],
+    "workload_metric": "Network Receive Packet",
+    "metric_need_dev_workload":[
+        "CPU System Time",
+        "CPU User Time",
+        "CPU Time"
+    ],
+    "metric":[
+        "vm_cpu_time_sys",
+        "vm_cpu_time_user",
+        "vm_cpu_vcpu_time",
+        "vm_cpu_context_switch",
+        "vm_cpu_cpi",
+        "vm_cpu_ips",
+        "vm_cache_mkpi",
+        "vm_mem_usage",
+        "vm_network_io_bytes_receive",
+        "vm_network_io_bytes_transmit",
+        "vm_network_io_packets_receive",
+        "vm_network_io_packets_transmit",
+        "vm_block_io_bytes_read",
+        "vm_block_io_bytes_write",
+        "vm_block_io_requests_write",
+        "vm_block_io_requests_read"
+    ],
+    "metric_excel_extra":[
+        "CPU System Time",
+        "CPU User Time",
+        "CPU Time"
+    ],
+    "metric_remap": [
+        {
+            "belong": "CPU",
+            "metric": "vm_cpu_time_sys",
+            "rename": "CPU System Time",
+            "short_name": "CSysT",
+            "rename_ch": "应用程序内核态CPU使用时间",
+            "describe": "内核态",
+            "unit": "Cores Used",
+            "dev_packet_unit": "Cores Used Per Receive Net Packet"
+        },
+        {
+            "belong": "CPU",
+            "metric": "vm_cpu_time_user",
+            "rename": "CPU User Time",
+            "short_name": "CUserT",
+            "rename_ch": "应用程序用户态CPU使用时间",
+            "describe": "用户态",
+            "unit": "Cores Used",
+            "dev_packet_unit": "Cores Used Per Receive Net Packet"
+        },
+        {
+            "belong": "CPU",
+            "metric": "vm_cpu_vcpu_time",
+            "rename": "CPU Time",
+            "short_name": "CT",
+            "rename_ch": "应用CPU使用时间",
+            "describe": "内核态 + 用户态",
+            "unit": "Cores Used",
+            "dev_packet_unit": "Cores Used Per Receive Net Packet"
+        },
+        {
+            "belong": "CPU",
+            "metric": "vm_cpu_context_switch",
+            "rename": "Context Switch",
+            "short_name": "CS",
+            "rename_ch": "应用进程内核切换",
+            "describe": "",
+            "unit": "Switch Count",
+            "dev_packet_unit": "Switch Count Per Receive Net Packet"
+        },
+        {
+            "belong": "CPU",
+            "metric": "vm_cpu_cpi",
+            "rename": "Cycle Per Instruction",
+            "short_name": "CPI",
+            "rename_ch": "应用程序每条指令执行的周期数",
+            "describe": "",
+            "unit": "Cycle",
+            "dev_packet_unit": "Cycle Per Receive Net Packet"
+        },
+         {
+            "belong": "CPU",
+            "metric": "vm_cpu_ips",
+            "rename": "Instructions Per Second",
+            "short_name": "IPS",
+            "rename_ch": "应用程序每秒执行指令数",
+            "describe": "",
+            "unit": "Instruction Count",
+            "dev_packet_unit": "Instruction Count Per Receive Net Packet"
+        },
+         {
+            "belong": "Cache",
+            "metric": "vm_cache_mkpi",
+            "rename": "LLC Cache Misses Per Thousand Instructions",
+            "short_name": "MKPI",
+            "rename_ch": "应用程序末级缓存每千条指令Miss数量",
+            "describe": "指令cache + 数据cache",
+            "unit": "Miss Instruction Count",
+            "dev_packet_unit": "Miss Instruction Count Per Receive Net Packet"
+        },
+         {
+            "belong": "Mem",
+            "metric": "vm_mem_usage",
+            "rename": "Memory Usage",
+            "short_name": "Mem Usage",
+            "rename_ch": "应用程序内存利用率",
+            "describe": "",
+            "unit": "Percentage",
+            "dev_packet_unit": "Percentage Per Receive Net Packet"
+        },{
+            "belong": "Network",
+            "metric": "vm_network_io_bytes_receive",
+            "rename": "Network Receive Bytes",
+            "short_name": "RB",
+            "rename_ch": "应用程序每秒网络接收比特",
+            "describe": "",
+            "unit": "Bytes Per Second",
+            "dev_packet_unit": "Bytes"
+        },{
+            "belong": "Network",
+            "metric": "vm_network_io_bytes_transmit",
+            "rename": "Network Transmit Bytes",
+            "short_name": "TB",
+            "rename_ch": "应用程序每秒网络发送比特",
+            "describe": "",
+            "unit": "Bytes Per Second",
+            "dev_packet_unit": "Bytes"
+        },{
+             "belong": "Network",
+            "metric": "vm_network_io_packets_receive",
+            "rename": "Network Receive Packet",
+            "short_name": "RP",
+            "rename_ch": "应用程序每秒网络接收数据包",
+            "describe": "~= Workload",
+            "unit": "Packets Per Second",
+            "dev_packet_unit": "Bytes"
+        },{
+             "belong": "Network",
+            "metric": "vm_network_io_packets_transmit",
+            "rename": "Network Transmit Packet",
+            "short_name": "TP",
+            "rename_ch": "应用程序每秒网络发送数据包",
+            "describe": "",
+            "unit": "Packets Per Second",
+            "dev_packet_unit": "Rate"
+        },{
+             "belong": "Disk",
+            "metric": "vm_block_io_bytes_read",
+            "rename": "Disk Read Bytes",
+            "short_name": "RB",
+            "rename_ch": "应用程序磁盘每秒读比特",
+            "describe": "",
+            "unit": "Bytes Per Second",
+            "dev_packet_unit": "Bytes Per Receive Net Packet"
+        },{
+             "belong": "Disk",
+            "metric": "vm_block_io_bytes_write",
+            "rename": "Disk Write Bytes",
+            "short_name": "RB",
+            "rename_ch": "应用程序磁盘每秒写比特",
+            "describe": "",
+            "unit": "Bytes Per Second",
+            "dev_packet_unit": "Bytes Per Receive Net Packet"
+        },{
+             "belong": "Disk",
+            "metric": "vm_block_io_requests_read",
+            "rename": "Disk Read Requests",
+            "short_name": "RB",
+            "rename_ch": "应用程序磁盘每秒读请求",
+            "describe": "",
+            "unit": "Requests Per Second",
+            "dev_packet_unit": "Bytes Per Receive Net Packet"
+        },{
+             "belong": "Disk",
+            "metric": "vm_block_io_requests_write",
+            "rename": "Disk Write Requests",
+            "short_name": "RB",
+            "rename_ch": "应用程序磁盘每秒写请求",
+            "describe": "",
+            "unit": "Requests Per Second",
+            "dev_packet_unit": "Bytes Per Receive Net Packet"
+        }
+    ],
+    "metric_aggregate":[
+        {
+            "belong": "Disk",
+            "deal": {
+                "mode": "div",
+                "num":"Disk Read Bytes",
+                "den": "Disk Read Requests"
+            },
+            "rename": "Read Block Size",
+            "short_name": "RB Size",
+            "rename_ch": "应用程序磁盘读块大小",
+            "describe": "",
+            "unit": "Byte",
+            "dev_packet_unit": "Byte Per Receive Net Packet"
+        },
+        {
+            "belong": "Disk",
+            "deal": {
+                "mode": "div",
+                "num":"Disk Write Bytes",
+                "den": "Disk Write Requests"
+            },
+            "rename": "Write Block Size",
+            "short_name": "WB Size",
+            "rename_ch": "应用程序磁盘写块大小",
+            "describe": "",
+            "unit": "Byte",
+            "dev_packet_unit": "Byte Per Receive Net Packet"
+        },
+        {
+            "belong": "Network",
+            "deal": {
+                "mode": "div",
+                "num":"Network Receive Bytes",
+                "den": "Network Receive Packet"
+            },
+            "rename": "Network Receive Packet Size",
+            "short_name": "RB Size",
+            "rename_ch": "应用程序磁盘读块大小",
+            "describe": "",
+            "unit": "Byte",
+            "dev_packet_unit": "Byte Per Receive Net Packet"
+        },
+        {
+            "belong": "Network",
+            "deal": {
+                "mode": "div",
+                "num":"Network Transmit Bytes",
+                "den": "Network Transmit Packet"
+            },
+            "rename": "Network Transmit Packet Size",
+            "short_name": "TB Size",
+            "rename_ch": "应用程序磁盘写块大小",
+            "describe": "",
+            "unit": "Byte",
+            "dev_packet_unit": "Byte Per Receive Net Packet"
+        }
+    ]
+}

@@ -9,8 +9,8 @@ import os
 import openpyxl
 import sys
 
-
-def metric_clustering(cfg, data, algo='euc', filter=False):
+# correlation computing
+def metric_clustering(cfg, data, algo='cos', filter=True):
     data = data.sort_values(by='Time')
     data = data.drop(columns=['Time', 'app', 'workload', 'count', 'p95', 'qps', 'score', 
                              'mem_stress', 'cpu_stress', 'cpu_load_stress'])
@@ -57,10 +57,11 @@ def metric_clustering(cfg, data, algo='euc', filter=False):
 
         correlation.append(cor_tmp)
 
-    corre_table = [metric_name, correlation]
+    corre_table = [
+        , correlation]
     return corre_table
 
-
+# print into csv
 def correlation_list(corre_table, mode='upper', name='default'):
     out_file = "data/" + name + ".csv"
     metric_name = corre_table[0]
@@ -91,7 +92,7 @@ def correlation_list(corre_table, mode='upper', name='default'):
         writer.writerow([''] + metric_name)
         writer.writerows(corre_matrix)
 
-
+# 依赖 metric_clustering  或者 correlation_list 的结果
 # cluster metrics into clique
 def make_clique(corre_table=[], absolute_path='', threshold=0.9):
     cliques = []
@@ -120,6 +121,7 @@ def make_clique(corre_table=[], absolute_path='', threshold=0.9):
         vertex_graph = new_graph
 
     return cliques
+
 
 # R: generate set; P: origin set; X:store set
 def max_clique(graph, list, R, P, X):
@@ -191,6 +193,7 @@ def graph_transfer(correlation, metric_len, threshold, type):
     
     return vertex_graph
 
+# 依赖make_clique的参数和返回值 
 # count the edge nums among cliques
 def inter_clique_edges(cliques, corre_table=[], absolute_path="", threshold)
     vertex_list, vertex_graph = graph_generate(corre_table, absolute_path, threshold)
