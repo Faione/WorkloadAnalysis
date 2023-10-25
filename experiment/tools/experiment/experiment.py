@@ -103,6 +103,8 @@ class Experiment:
         self.total_time = self.end_time - self.start_time
         self.__gen_dir_name(workload_exec, stress_exec)
 
+    # dir_name is the exp name, format like {workload_type}_{stress_type}_{time}
+    # eg: redis_cache_20231024161754
     def __gen_dir_name(self, workload_exec, stress_exec):
         stress = "no"
         if stress_exec != None and "type" in stress_exec.__dict__:
