@@ -97,7 +97,6 @@ def run_exp(exp_yaml):
         
     
     exp.run(stress_exec=stress_exec, workload_exec=workload_exec, interval=DEFAULT_OPT_INTERVAL)
-    
     data_root = cfg["data_root"]
     
     dir_path = os.path.join(data_root, exp.dir_name())

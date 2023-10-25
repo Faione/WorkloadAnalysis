@@ -1,0 +1,52 @@
+default_opt_interval: 16
+data_root: "/home/fhl/Workplace/Python/appProfile/data"
+workload:
+    raw:
+        base_name: "redis"
+        base_cmd: "docker exec -it redis-client-1 memtier_benchmark"
+    flags:
+        "-s": "envoy"
+        "--test-time": 120
+        "-t": [100]
+
+workload_exec:
+    save_file: "date.json"
+    raw:
+        warmup_cmd: "docker exec -it redis-client-1 memtier_benchmark -s envoy --test-time 10"
+    
+stress_exec:
+    save_file: "stress.json"
+    raw:
+        workerdo: "ssh fhl@worknode-01 sudo"
+        run_cmd:
+            cpu: "podman run -d --rm --name stress_cpu --cpuset-cpus 120-123 localhost/my-stress-ng:v0.1"
+            mem: "podman run -d --rm --name stress_mem --cpuset-cpus 40-59,125-139 localhost/my-stress-ng:v0.1  --memrate-rd-mbs 1000 --memrate-wr-mbs 1000"
+        stop_cmd: "podman stop"
+    
+experiment:
+    raw:
+        mode: "standard"
+        date_format: "timestamp"
+    save_file: "exp.json"
+    settings:
+        stress:
+            mem:
+                memrate_range:
+                    start: 1
+                    end: 20
+                    step: 1
+                memrate_byte: "1G"
+collect:
+    grafana:
+        auth: "admin:admin@"
+        server: "localhost:3001"
+    prometheus:
+        server: "localhost:9090"
+    query:
+        dashboard: 
+            - "aio"
+            - "host"
+            - "vm"
+            - "app"
+        step: "4s"
+    save_file: "merged.csv"

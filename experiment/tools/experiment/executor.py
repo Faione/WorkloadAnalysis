@@ -20,21 +20,14 @@ def run_shell(cmd):
     if os.system(cmd) != 0:
         sys.exit(1)
 
-class DummyExecutor(experiment.Executor):
-    def __init__(self, name="dummy", opt_interval=DEFAUTL_OPT_INTERVAL):
-        super().__init__(name, opt_interval)
-        self.opt_interval = opt_interval
-        self.name = name
-
 class StressExecutor(experiment.Executor, generator.Flags):
     
     def __init__(self, cmd_base="", flag_base="", stop_cmd="", type="", name="stress_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
-        experiment.Executor.__init__(self, name, opt_interval)
+        experiment.Executor.__init__(self, type, name, opt_interval)
         generator.Flags.__init__(self, flag_base)
         
         self.cmd_base = cmd_base
         self.stop_cmd = stop_cmd
-        self.type = type
         self.runnig  = False
         
     def stress_info(self, flag):
@@ -67,12 +60,13 @@ class StressExecutor(experiment.Executor, generator.Flags):
 
 class WorkloadExecutor(experiment.Executor, generator.Flags):
     
-    def __init__(self, cmd_base="", flag_base="", workload_name="", warmup_cmd="", name="workload_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
-        experiment.Executor.__init__(self, name, opt_interval)
+    def __init__(self,
+                 cmd_base="", flag_base="", type="", warmup_cmd="",
+                 name="workload_executor", opt_interval=DEFAUTL_OPT_INTERVAL):
+        experiment.Executor.__init__(self, type, name, opt_interval)
         generator.Flags.__init__(self, flag_base)
 
         self.cmd_base = cmd_base
-        self.workload_name = workload_name
         self.warmup_cmd= warmup_cmd
         
     def iter(self):
