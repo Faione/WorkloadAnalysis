@@ -114,7 +114,7 @@ class Experiment:
         if workload_exec != None and "type" in workload_exec.__dict__:
             workload = workload_exec.type
         
-        self.name != "_".join([workload, stress, str(self.start(DEFAULT_DATE_FORMAT))])
+        self.name = "_".join([workload, stress, str(self.start(DEFAULT_DATE_FORMAT))])
         
         
     def dir_name(self):

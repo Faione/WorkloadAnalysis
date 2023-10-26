@@ -2,17 +2,6 @@ import json
 import os
 import pandas as pd
 
-
-defualt_workload_preprocess_funcs = [
-    filter_column_startswith(col_prefix=("vm", "app")),
-    filter_column_useless(std_min=1e-10),
-    filter_row_noise(col_prefix=("app")),
-]
-
-defualt_workload_agg_funcs = [
-    lambda x : x.mean().to_frame().T,
-]
-
 def format_to_13_timestamp(ts):
     assert ts + 1 < 10000000000000
     return int(format(ts, '0<13d'))
@@ -20,7 +9,8 @@ def format_to_13_timestamp(ts):
 def filter_row_timerange(start, end):
     return lambda x : x.loc[(x.index >= start) & (x.index <=end)]
 
-def filter_column_useless(std_min, mean_min=0):
+
+def filter_column_useless(excol_prefix=(), std_min=1e-10, mean_min=0):
     def __filter_column_useless(df):
         cols_to_drop = set()
         std = df.std()
@@ -28,10 +18,10 @@ def filter_column_useless(std_min, mean_min=0):
 
         cols_to_drop.update(std[std <= std_min].index)
         cols_to_drop.update(mean[mean <= mean_min].index)
-        return df.drop(columns = cols_to_drop)
+        return df.drop(columns = [col for col in cols_to_drop if not col.startswith(excol_prefix)])
     return __filter_column_useless
 
-# same col may not change at all
+# same columu may not change at all
 # so it is important to set col prefix and choose those essential
 def filter_row_noise(col_prefix, sparam=1.5, l=0.25, h=0.75):
     def __filter_row_noise(df):
@@ -47,11 +37,28 @@ def filter_row_noise(col_prefix, sparam=1.5, l=0.25, h=0.75):
 def filter_column_startswith(col_prefix):
     return lambda x : x[[col for col in x.columns if col.startswith(col_prefix)]]
 
-def filter_workload(workload_info):
+def filter_workload(workload_info, with_stress=False):
     assert "start_time" in workload_info and "end_time" in workload_info
     start = format_to_13_timestamp(workload_info["start_time"])
     end = format_to_13_timestamp(workload_info["end_time"]) 
-    return filter_row_timerange(start, end)
+    if not with_stress:
+        return filter_row_timerange(start, end)
+        
+    def __filter_workload(df):
+        df = filter_row_timerange(start, end)(df)
+        if "stress" in workload_info and workload_info["stress"] != {}:
+            stress_data = {}
+            for k, v in workload_info["stress"].items():
+                for _k, _v in v.items():
+                    stress_data[f"stress_{_k}"] = [int(_v) for i in range(df.shape[0])]
+                    
+            stress_df = pd.DataFrame(stress_data)
+            stress_df.set_index(df.index, inplace=True)
+            df = pd.concat([stress_df, df], axis=1)
+        return df
+    return __filter_workload
+
+    
 
 def apply_df_funcs(df, df_funcs=[]):
     for df_func in df_funcs:
@@ -73,12 +80,12 @@ class ExpData:
         self.workload_agg_funcs = df_funcs
         return self
 
-    def workload_df(self, workload):
-        df_funcs = [filter_workload(workload)] + self.workload_preprocess_funcs
+    def workload_df(self, workload, with_stress=False):
+        df_funcs = [filter_workload(workload, with_stress)] + self.workload_preprocess_funcs
         return apply_df_funcs(self.df, df_funcs)
 
-    def agg_one_workload(self, workload):
-        df_funcs =  [filter_workload(workload)] + self.workload_preprocess_funcs + self.workload_agg_funcs
+    def agg_one_workload(self, workload, with_stress=False):
+        df_funcs =  [filter_workload(workload, with_stress)] + self.workload_preprocess_funcs + self.workload_agg_funcs
         return apply_df_funcs(self.df, df_funcs)
 
     def __agg_one_epoch(self, n_epoch):
@@ -92,11 +99,11 @@ class ExpData:
         df = pd.concat(dfs).fillna(0).reset_index(drop=True)
 
         # assume stress is the same in one epoch
-        if "stress" in epoch_info:
+        if "stress" in epoch_info and epoch_info["stress"] != {}:
             stress_data = {}
             for k, v in epoch_info["stress"].items():
                 for _k, _v in v.items():
-                    stress_data[_k] = [_v for i in range(df.shape[0])]
+                    stress_data[f"stress_{_k}"] = [int(_v) for i in range(df.shape[0])]
                     
             stress_df = pd.DataFrame(stress_data)
             assert stress_df.shape[0] == df.shape[0], f"miss match length {stress_df.shape[0]} and {df.shape[0]}"
@@ -119,7 +126,6 @@ class ExpData:
 def __check_exp(exp):
     essential_fields = [
         "n_epoch",
-        "info_per_workload",
         "info_per_epoch",
     ]
     return all(field in exp for field in essential_fields)
@@ -138,3 +144,12 @@ def read_from_dir(dir):
     assert __check_exp(exp)
     return ExpData(df_total, exp)
 
+defualt_workload_preprocess_funcs = [
+    filter_column_startswith(col_prefix=("stress", "host", "vm", "app")),
+    filter_column_useless(excol_prefix=("stress")),
+    filter_row_noise(col_prefix=("app")),
+]
+
+defualt_workload_agg_funcs = [
+    lambda x : x.mean().to_frame().T,
+]

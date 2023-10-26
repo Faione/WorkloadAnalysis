@@ -1,4 +1,4 @@
-config_dir=stress_test
+config_dir=stress_test/same_cpu
 for y in `ls conf/$config_dir`
 do
 python3 run_experiment.py -f conf/$config_dir/$y

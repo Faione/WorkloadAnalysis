@@ -1,0 +1,34 @@
+default_opt_interval: 32
+data_root: "/home/fhl/Workplace/Python/appProfile/data"
+
+workload_exec:
+    flags:
+        "--vm":
+            start: 0
+            end: 6
+            map: "lambda x: 2**x"
+    raw:
+        cmd_base: "ssh fhl@worknode-01 sudo podman exec"
+        flag_base: "-i stress stress-ng -t 120"
+        type: "vm"
+    
+experiment:
+    raw:
+        date_format: "timestamp"
+        n_epoch: 1
+    save_file: "exp.json"
+
+collect:
+    grafana:
+        auth: "admin:admin@"
+        server: "localhost:3001"
+    prometheus:
+        server: "localhost:9090"
+    query:
+        dashboard: 
+            - "aio"
+            - "host"
+            - "vm"
+            - "app"
+        step: "4s"
+    save_file: "merged.csv"

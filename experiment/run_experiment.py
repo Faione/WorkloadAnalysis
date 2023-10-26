@@ -100,6 +100,8 @@ def run_exp(exp_yaml):
     data_root = cfg["data_root"]
     
     dir_path = os.path.join(data_root, exp.dir_name())
+    logging.info(f"save exp info to {dir_path}")
+    
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
 

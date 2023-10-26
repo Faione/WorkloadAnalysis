@@ -433,3 +433,150 @@ def compare(cfg,select_columns=[],fig_size_width=24,fig_size_higth = 16,fontsize
             
         fig.savefig(f'{dir}/{app}.png', dpi=200)
         plt.close(fig)
+
+def get_intensity_and_workloads_range(exp_data,app):
+    workload_range = 0
+    for key_workload in exp_data.exp["info_per_workload"].keys():
+        key = key_workload.split("_")[0]
+        if key == app: 
+            workload_range = workload_range + 1
+    return workload_range
+
+def draw_boxs_only_intensity(exp_data,app,metrics,metrics_remap,sub_dir="boxs", use_full_workload = False,intensity_range=5):
+    workload_range = get_intensity_and_workloads_range(exp_data,app)
+
+    datas = {}
+    labels = {}
+    positions = {}
+    for metric in metrics:
+        position_idx = 0
+        if metric not in datas:
+            datas[metric]=[]
+            labels[metric] = []
+            positions[metric] = []
+        for intensity in range(0,intensity_range):
+            workloads = []
+            if use_full_workload:
+                # 每个workload作为一次数据
+                for workload in range(0,workload_range):
+                    meta_info = exp_data.exp["info_per_epoch"][intensity]['workloads'][f'{app}_{workload}']
+                    workloads.append(exp_data.agg_one_workload(meta_info))
+            else: 
+                # 每个workload所有数据都用上
+                for workload in range(0,workload_range):
+                    meta_info = exp_data.exp["info_per_epoch"][intensity]['workloads'][f'{app}_{workload}']
+                    workloads.append(exp_data.workload_df(meta_info))
+
+            df = pd.concat(workloads)
+            datas[metric].append(df[metric].values)
+            labels[metric].append(f'intensity_{intensity}')
+            position_idx = position_idx + 2
+            positions[metric].append(position_idx)
+    
+    fig, axs = plt.subplots(len(metrics), sharex=True, figsize=(10,len(metrics)*2))
+    for i,metric_name in enumerate(metrics):
+        axs[i].boxplot(
+            datas[metric_name],
+             # patch_artist=True, # 箱体上色
+             widths = 0.1, # 箱宽
+             notch = True, # 凹口
+             showmeans = True, # 均值
+             meanline = True,
+             meanprops = {
+                 'color': 'red', 
+                 'linewidth': 2, 
+                 'linestyle': '--'
+             }, # 均值样式
+             positions=positions[metric], # 箱体位置
+             labels=labels[metric],
+             medianprops = {
+                 'color': 'blue', 
+                 'linewidth': 2, 
+                 'linestyle': '-'
+             }, # 均值样式
+             capprops = {
+                 'linewidth': 2, 
+                 'linestyle': '-'
+             }
+        ) 
+        
+        axs[i].set_title(f'{metrics_remap[metric_name]}')
+
+    dir = f'{sub_dir}'
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+        
+    fig.savefig(f'{dir}/{app}.png', dpi=200)
+    plt.close(fig)
+
+
+def draw_boxs_for_all_interfrence(exp_datas,app,metrics,metrics_remap,sub_dir="boxs", use_full_workload = False,intensity_range=5):
+    
+
+    datas = {}
+    labels = {}
+    positions = {}
+    for metric in metrics:
+        position_idx = 0
+        if metric not in datas:
+            datas[metric]=[]
+            labels[metric] = []
+            positions[metric] = []
+        for intensity in range(0,intensity_range):
+            for interfrence,exp_data in exp_datas.items():
+                workloads = []
+                if use_full_workload:
+                    # 每个workload作为一次数据
+                    workload_range = get_intensity_and_workloads_range(exp_data,app)
+                    for workload in range(0,workload_range):
+                        meta_info = exp_data.exp["info_per_epoch"][intensity]['workloads'][f'{app}_{workload}']
+                        workloads.append(exp_data.agg_one_workload(meta_info))
+                else: 
+                    # 每个workload所有数据都用上
+                    workload_range = get_intensity_and_workloads_range(exp_data,app)
+                    for workload in range(0,workload_range):
+                        meta_info = exp_data.exp["info_per_epoch"][intensity]['workloads'][f'{app}_{workload}']
+                        workloads.append(exp_data.workload_df(meta_info))
+
+                df = pd.concat(workloads)
+                datas[metric].append(df[metric].values)
+                labels[metric].append(f'{interfrence}-{intensity}')
+                position_idx = position_idx + 1
+                positions[metric].append(position_idx)
+            position_idx = position_idx + 1
+    
+    fig, axs = plt.subplots(len(metrics), sharex=True, figsize=(20,len(metrics)*2))
+    for i,metric_name in enumerate(metrics):
+        axs[i].boxplot(
+            datas[metric_name],
+             # patch_artist=True, # 箱体上色
+             widths = 0.1, # 箱宽
+             notch = True, # 凹口
+             showmeans = True, # 均值
+             meanline = True,
+             meanprops = {
+                 'color': 'red', 
+                 'linewidth': 2, 
+                 'linestyle': '--'
+             }, # 均值样式
+             positions=positions[metric], # 箱体位置
+             labels=labels[metric],
+             medianprops = {
+                 'color': 'blue', 
+                 'linewidth': 2, 
+                 'linestyle': '-'
+             }, # 均值样式
+             capprops = {
+                 'linewidth': 2, 
+                 'linestyle': '-'
+             }
+        ) 
+        
+        axs[i].set_title(f'{metrics_remap[metric_name]}')
+
+    dir = f'{sub_dir}'
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+        
+    fig.savefig(f'{dir}/{app}.png', dpi=200)
+    plt.close(fig)
