@@ -19,6 +19,7 @@ import logging
 import argparse
 
 
+DEFAULT_OPT_INTERVAL = 60
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -54,8 +55,9 @@ def exp_from_yaml(data):
     return experiment.Experiment(**data["raw"])
     
 def workload_exec_from_yaml(data):
+    assert data != {}
+        
     wexe = executor.WorkloadExecutor(**data["raw"])
-
     if "flags" in data:
         for k,v in data["flags"].items():
             wexe.with_flag(k, to_flag_val(v))
@@ -63,48 +65,26 @@ def workload_exec_from_yaml(data):
     return wexe
 
 def stress_exec_from_yaml(data):
+    if data == {}:
+        return None
     sexe = executor.StressExecutor(**data["raw"])
-
     if "flags" in data:
         for k,v in data["flags"].items():
             sexe.with_flag(k, to_flag_val(v))
             
     return sexe
 
-def run_exp(exp_yaml):
-    
-    DEFAULT_OPT_INTERVAL = 60
-    
-    with open(exp_yaml, 'r') as f:
-        file_data = f.read()    
-        # cfg = yaml.load(file_data, yaml.FullLoader)
-        cfg = yaml.load(file_data)
-        
-    if "default_opt_interval" in cfg:
-        DEFAULT_OPT_INTERVAL = cfg["default_opt_interval"]
-    
-    if "opt_interval" not in cfg["workload_exec"]:
-        cfg["workload_exec"]["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL
-    
-    if "stress_exec" in cfg and "opt_interval" not in cfg["stress_exec"]:
-        cfg["stress_exec"]["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL
 
-    exp = exp_from_yaml(cfg["experiment"])
-    workload_exec = workload_exec_from_yaml(cfg["workload_exec"])
-    stress_exec = None
-    if "stress_exec" in cfg:
-        stress_exec = stress_exec_from_yaml(cfg["stress_exec"])
-        
-    
-    exp.run(stress_exec=stress_exec, workload_exec=workload_exec, interval=DEFAULT_OPT_INTERVAL)
+def run_one_exp(cfg, exp, workload_exec, stress_exec):
     data_root = cfg["data_root"]
+    exp_yaml = cfg["exp_yaml"]
+    exp.run(stress_exec=stress_exec, workload_exec=workload_exec, interval=DEFAULT_OPT_INTERVAL)
     
     dir_path = os.path.join(data_root, exp.dir_name())
     logging.info(f"save exp info to {dir_path}")
-    
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
-
+        
     exp_dict = exp.__dict__
     exp_dict["conf"] = exp_yaml
     with open(os.path.join(dir_path, cfg["experiment"]["save_file"]), 'w') as f:
@@ -140,8 +120,36 @@ def run_exp(exp_yaml):
     print(df.info())
     df.to_csv(os.path.join(dir_path, cfg["collect"]["save_file"]))
 
+
+def run_exps(exp_yaml):
+    with open(exp_yaml, 'r') as f:
+        file_data = f.read()    
+        # cfg = yaml.load(file_data, yaml.FullLoader)
+        cfg = yaml.load(file_data)
+    cfg["exp_yaml"] = exp_yaml
+    if "default_opt_interval" in cfg:
+        DEFAULT_OPT_INTERVAL = cfg["default_opt_interval"]
+    
+    workload_exec_cfgs = cfg["workload_exec"]
+    stress_exec_cfgs = [{}]
+    if "stress_exec" in cfg:
+        stress_exec_cfgs = cfg["stress_exec"]
+    
+    exp = exp_from_yaml(cfg["experiment"])
+    
+    for workload_exec_cfg in workload_exec_cfgs:
+        for stress_exec_cfg in stress_exec_cfgs:
+            if "opt_interval" not in workload_exec_cfg:
+                workload_exec_cfg["opt_interval"] = DEFAULT_OPT_INTERVAL
+            if stress_exec_cfg != {} and "opt_interval" not in stress_exec_cfg:
+                stress_exec_cfg["opt_interval"] = DEFAULT_OPT_INTERVAL 
+            
+            workload_exec = workload_exec_from_yaml(workload_exec_cfg)
+            stress_exec = stress_exec_from_yaml(stress_exec_cfg)
+            run_one_exp(cfg, exp, workload_exec, stress_exec)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--config', type=str, help='experiment config path')
     args = parser.parse_args()
-    run_exp(args.config)
+    run_exps(args.config)

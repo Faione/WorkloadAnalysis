@@ -24,7 +24,7 @@ stress_exec:
         cmd_base: "ssh fhl@worknode-01 sudo podman runk"
         flag_base: "-d --rm --cpuset-cpus 120-123 localhost/my-stress-ng:v0.1"
         stop_cmd: "ssh fhl@worknode-01 sudo podman stop"
-        type: "mem"
+        type: "vm"
     
 experiment:
     raw:

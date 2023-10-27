@@ -580,3 +580,39 @@ def draw_boxs_for_all_interfrence(exp_datas,app,metrics,metrics_remap,sub_dir="b
         
     fig.savefig(f'{dir}/{app}.png', dpi=200)
     plt.close(fig)
+
+def analysis_app(cfg,app):
+    metrics = [
+        "app_redis_qos_qps_of_redis_set",
+        "host_cache_llc_capacity_numa_2"
+    ]
+    metrics_remap = {
+        "app_redis_qos_qps_of_redis_set": "Metric1 (%)",
+        "host_cache_llc_capacity_numa_2": "Metric2 (%)"
+    }
+    exp_cpu = read_from_dir("/home/ict/appProfile/data/addtion_exp/standard_stress_cpu_20231023164753/")
+    exp_cache = read_from_dir("/home/ict/appProfile/data/addtion_exp/standard_stress_cache_20231023055534/")
+    exp_io = read_from_dir("/home/ict/appProfile/data/addtion_exp/standard_stress_io_20231023083904/")
+    exp_net = read_from_dir("/home/ict/appProfile/data/addtion_exp/standard_stress_net_20231023140654/")
+    
+    # exp_no.set_workload_preprocess_funcs(df_funcs=[])
+    exp_cpu.set_workload_preprocess_funcs(df_funcs=[])
+    exp_cache.set_workload_preprocess_funcs(df_funcs=[])
+    exp_io.set_workload_preprocess_funcs(df_funcs=[])
+    exp_net.set_workload_preprocess_funcs(df_funcs=[])
+    
+    exps_datas = {
+        # "no": exp_no,
+        "cpu": exp_cpu,
+        "cache": exp_cache,
+        "io": exp_io,
+        "net": exp_net
+    }
+    
+    analysis.draw_boxs_for_all_interfrence(
+        exps_datas,
+        app="redis",
+        metrics=metrics,
+        metrics_remap=metrics_remap,
+        sub_dir="data/20231026/interfrence"
+    )

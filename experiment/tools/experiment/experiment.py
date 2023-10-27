@@ -57,17 +57,16 @@ class Experiment:
             self.info_per_epoch.append(epoch_infos)
             epoch_n = epoch_n + 1
             time.sleep(interval)
-        self.n_epoch = epoch_n
+        self.n_epoch += epoch_n
 
     # run only workload
-    def __run_only_workload(self, workload_exec, stress_exec, interval):
+    def __run_only_workload(self, workload_exec, interval):
         for epoch_n in range(0, self.n_epoch):
             workload_n = 0
             epoch_infos = {}
             workload_infos = {}
             for workload_flag in workload_exec.iter():
-                workload_name = f"{workload_exec.type}_{workload_n}"
-                
+                workload_name = f"{workload_exec.type}_{workload_n}"           
                 with workload_exec as we:
                     workload_info = we.exec(flag=workload_flag)
                     workload_info["name"] = workload_name
@@ -81,8 +80,7 @@ class Experiment:
                 workload_n = workload_n + 1
             epoch_infos["workloads"] = workload_infos
             self.info_per_epoch.append(epoch_infos)
-            epoch_n = epoch_n + 1
-        
+             
     def run(self, workload_exec, stress_exec, interval=60):
         assert workload_exec != None
         assert self.n_epoch != 0 or stress_exec != None
@@ -96,7 +94,7 @@ class Experiment:
         if stress_exec != None:
             self.__run(workload_exec, stress_exec, interval)
         else:
-            self.__run_only_workload(workload_exec, stress_exec, interval)
+            self.__run_only_workload(workload_exec, interval)
         
         self.end_time = int(time.time())
         logging.info(f"{self.start()} experiment end")
