@@ -74,7 +74,6 @@ def stress_exec_from_yaml(data):
             
     return sexe
 
-
 def run_one_exp(cfg, exp, workload_exec, stress_exec):
     data_root = cfg["data_root"]
     exp_yaml = cfg["exp_yaml"]
@@ -83,7 +82,7 @@ def run_one_exp(cfg, exp, workload_exec, stress_exec):
     dir_path = os.path.join(data_root, exp.dir_name())
     logging.info(f"save exp info to {dir_path}")
     if not os.path.exists(dir_path):
-        os.mkdir(dir_path)
+        os.makedirs(dir_path)
         
     exp_dict = exp.__dict__
     exp_dict["conf"] = exp_yaml
@@ -135,17 +134,16 @@ def run_exps(exp_yaml):
     if "stress_exec" in cfg:
         stress_exec_cfgs = cfg["stress_exec"]
     
-    exp = exp_from_yaml(cfg["experiment"])
-    
     for workload_exec_cfg in workload_exec_cfgs:
         for stress_exec_cfg in stress_exec_cfgs:
             if "opt_interval" not in workload_exec_cfg:
-                workload_exec_cfg["opt_interval"] = DEFAULT_OPT_INTERVAL
+                workload_exec_cfg["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL
             if stress_exec_cfg != {} and "opt_interval" not in stress_exec_cfg:
-                stress_exec_cfg["opt_interval"] = DEFAULT_OPT_INTERVAL 
+                stress_exec_cfg["raw"]["opt_interval"] = DEFAULT_OPT_INTERVAL 
             
             workload_exec = workload_exec_from_yaml(workload_exec_cfg)
             stress_exec = stress_exec_from_yaml(stress_exec_cfg)
+            exp = exp_from_yaml(cfg["experiment"])
             run_one_exp(cfg, exp, workload_exec, stress_exec)
 
 if __name__ == '__main__':
