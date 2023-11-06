@@ -1,11 +1,25 @@
 import numpy as np
 import pandas as pd
+import networkx as nx
+from itertools import combinations
 
+# 获取 corr_matrix 中的团
+def cliques_from_corr(corr_matrix, threshold=0.95, abs=False, round_val=3):
+    G = nx.Graph()
+    for i, j in combinations(corr_matrix.index, 2):
+        if corr_matrix.loc[i, j] > threshold or (abs and corr_matrix.loc[i, j] < -threshold):
+            G.add_edge(i, j, weight=round(corr_matrix.loc[i, j], round_val))
+
+    cliques = [clique for clique in nx.find_cliques(G)]
+    cliques.sort(key=lambda l: len(l), reverse=True)
+    return G, cliques
+
+# 计算余弦相似度
 def cosine_similarity(df):
-    # 计算余弦相似度
-    similarity_matrix = np.dot(df.T, df) / (np.linalg.norm(df, axis=0)[:, None] * np.linalg.norm(df, axis=0))
+    # 归一化
+    df = (df - df.mean()) / df.std()
     
-    # 将相似度矩阵转换为 DataFrame
+    similarity_matrix = np.dot(df.T, df) / (np.linalg.norm(df, axis=0)[:, None] * np.linalg.norm(df, axis=0))
     similarity_df = pd.DataFrame(similarity_matrix, index=df.columns, columns=df.columns)
     return similarity_df
 
