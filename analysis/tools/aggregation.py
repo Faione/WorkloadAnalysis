@@ -38,18 +38,8 @@ def filter_row_noise(col_prefix, sparam=1.5, l=0.25, h=0.75):
 def filter_column_startswith(col_prefix):
     return lambda x : x[[col for col in x.columns if col.startswith(col_prefix)]]
 
-def filter_workload(workload_info, with_stress=False):
-    assert "start_time" in workload_info or "start" in workload_info
-    assert "end_time" in workload_info or "end" in workload_info
-  
-    start = format_to_13_timestamp(workload_info["start_time"] if "start_time" in workload_info else workload_info["start"])
-    end = format_to_13_timestamp(workload_info["end_time"] if "end_time" in workload_info else workload_info["end"]) 
-  
-    if not with_stress:
-        return filter_row_timerange(start, end)
-        
+def __workload_with_stress(workload_info):
     def __filter_workload(df):
-        df = filter_row_timerange(start, end)(df)
         if "stress" in workload_info and workload_info["stress"] != {}:
             stress_data = {}
             for k, v in workload_info["stress"].items():
@@ -61,6 +51,24 @@ def filter_workload(workload_info, with_stress=False):
             df = pd.concat([stress_df, df], axis=1)
         return df
     return __filter_workload
+    
+def __workload_with_score(workload_info):
+    return lambda x:x
+
+def filter_workload(workload_info, with_stress = False, with_score=False):
+    assert "start_time" in workload_info or "start" in workload_info
+    assert "end_time" in workload_info or "end" in workload_info
+  
+    start = format_to_13_timestamp(workload_info["start_time"] if "start_time" in workload_info else workload_info["start"])
+    end = format_to_13_timestamp(workload_info["end_time"] if "end_time" in workload_info else workload_info["end"]) 
+
+    df_funcs = [filter_row_timerange(start, end)]
+    if with_stress:
+        df_funcs.append(__workload_with_stress(workload_info))
+
+    if with_score:
+        df_funcs.append(__workload_with_score(workload_info))
+    return df_funcs
 
 def stress_to_str(workload_info):
     stress = ""
@@ -116,7 +124,7 @@ class ExpData:
         return self.exp["info_per_workload"][workload_name]["info_per_epoch"]
 
     def workload_df(self, workload, with_stress=False, custom_df_funcs=None):
-      df_funcs = [filter_workload(workload, with_stress)]
+      df_funcs = filter_workload(workload, with_stress)
       if custom_df_funcs == None:
         df_funcs = df_funcs + self.workload_preprocess_funcs
       else:
@@ -131,8 +139,8 @@ class ExpData:
         self.workload_agg_funcs = df_funcs
         return self
 
-    def agg_one_workload(self, workload, with_stress=False):
-        df_funcs =  [filter_workload(workload, with_stress)] + self.workload_preprocess_funcs + self.workload_agg_funcs
+    def agg_one_workload(self, workload, with_stress=False, with_score=False):
+        df_funcs =  filter_workload(workload, with_stress, with_score) + self.workload_preprocess_funcs + self.workload_agg_funcs
         return apply_df_funcs(self.df, df_funcs)
 
     def __agg_one_epoch(self, n_epoch):
@@ -182,7 +190,9 @@ class ExpData:
         df_dict = {}
         for workload_key in self.workload_keys():
             workload_info = self.workloads_of(workload_key)[n_epoch]
-            df_dict[workload_key] =  self.workload_df(workload_info)[column].reset_index(drop=True)
+            workload_df = self.workload_df(workload_info)
+            assert column in workload_df.columns, f"{column} not in workload {workload_key}"
+            df_dict[workload_key] =  workload_df[column].reset_index(drop=True)
         return pd.DataFrame(df_dict)
 
 def agg_per_workload_stress(exp_data, no_stress_df_epoch, qos_column, stress=""):
@@ -252,7 +262,7 @@ def concat(exp_datas=[]):
     info_per_workload = {}
     for exp in exp_datas:
         info_per_workload.update(exp.exp["info_per_workload"])
-        n_epoch = n_epoch + exp.exp["n_epoch"]
+        n_epoch = exp.exp["n_epoch"]
 
     info_per_epoch = ipw_to_ipe(info_per_workload)
     total_exp = {
