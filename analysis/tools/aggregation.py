@@ -75,13 +75,40 @@ def apply_df_funcs(df, df_funcs=[]):
         df = df_func(df)
     return df
 
+def ipe_to_ipw(info_per_epoch):
+    info_per_workload = {}
+    for epoch_info in info_per_epoch:
+        for k,v in epoch_info["workloads"].items():
+            if k not in info_per_workload:
+                info_per_workload[k] = {"info_per_epoch": [v]}
+            else:
+               info_per_workload[k]["info_per_epoch"].append(v)
+    return info_per_workload
+
+def ipw_to_ipe(info_per_workload):
+    info_per_epoch = []
+    keys = list(info_per_workload.keys())
+    n_epoch = len(info_per_workload[keys[0]]["info_per_epoch"])
+    
+    for i in range(n_epoch):
+        epoch_info = {"workloads":{}}
+
+        for key in keys:
+            epoch_info["workloads"][key] = info_per_workload[key]["info_per_epoch"][i]
+        else:
+            if "stress" in info_per_workload[key]["info_per_epoch"][i]:
+                epoch_info["stress"] = info_per_workload[key]["info_per_epoch"][i]["stress"]
+
+        info_per_epoch.append(epoch_info)
+    return info_per_epoch
+
 class ExpData:
     def __init__(self, df, exp):
         self.df = df
         self.exp = exp
         self.workload_preprocess_funcs = defualt_workload_preprocess_funcs
         self.workload_agg_funcs = defualt_workload_agg_funcs
-
+        
     def workload_keys(self):
         return list(self.exp["info_per_workload"].keys())
       
@@ -183,7 +210,7 @@ def agg_per_workload_stress(exp_data, no_stress_df_epoch, qos_column, stress="")
     df = pd.concat(qos_percentage_dfs, axis=1)
     df.columns = list(df_epoch_group.groups.keys())
     return df
-
+    
 def __check_exp(exp):
     essential_fields = [
         "n_epoch",
@@ -203,7 +230,44 @@ def read_from_dir(dir):
         exp = json.load(f)
 
     assert __check_exp(exp)
+    if "info_per_workload" not in exp or exp["info_per_workload"] == {}:
+        exp["info_per_workload"] = ipe_to_ipw(exp["info_per_epoch"])
+    
     return ExpData(df_total, exp)
+# To Be Tested
+def concat(exp_datas=[]):
+    if len(exp_datas) == 0:
+        return None
+    if len(exp_datas) == 1:
+        return exp_datas[0]
+        
+    exp_datas.sort(key = lambda x : x.exp["start_time"])
+    
+    start_time = exp_datas[0].exp["start_time"]
+    end_time = exp_datas[1].exp["end_time"]
+    total_time = end_time - start_time
+    date_format = exp_datas[0].exp["date_format"]
+
+    n_epoch = 0
+    info_per_workload = {}
+    for exp in exp_datas:
+        info_per_workload.update(exp.exp["info_per_workload"])
+        n_epoch = n_epoch + exp.exp["n_epoch"]
+
+    info_per_epoch = ipw_to_ipe(info_per_workload)
+    total_exp = {
+        "start_time": start_time,
+        "end_time": end_time,
+        "total_time": total_time,
+        "n_epoch": n_epoch,
+        "date_format": date_format,
+        "info_per_workload": info_per_workload,
+        "info_per_epoch": info_per_epoch,        
+    }
+
+    total_df = pd.concat([exp_data.df for exp_data in exp_datas], axis=0)
+
+    return ExpData(total_df, total_exp)
 
 defualt_workload_preprocess_funcs = [
     filter_column_startswith(col_prefix=("stress", "host", "vm", "app")),

@@ -43,7 +43,7 @@ def plt_clique_on_graph(G, clique, rename_node=True, scaling=1.5, label_pos=0.35
 
 def plt_box(df, var_name="Series", value_name="Values"):
     df_melted = df.melt(var_name=var_name, value_name=value_name).dropna()
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 4))
 
     sns.boxplot(x=var_name, y=value_name, data=df_melted, width=0.5, boxprops=dict(facecolor='grey', edgecolor='none'))
     sns.boxplot(x=var_name, y=value_name, data=df_melted, width=0.5, boxprops=dict(facecolor='none', edgecolor='black'))
