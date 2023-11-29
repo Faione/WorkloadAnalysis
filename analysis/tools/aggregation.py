@@ -38,7 +38,7 @@ def filter_row_noise(col_prefix, sparam=1.5, l=0.25, h=0.75):
 def filter_column_startswith(col_prefix):
     return lambda x : x[[col for col in x.columns if col.startswith(col_prefix)]]
 
-def __workload_with_stress(workload_info):
+def _workload_with_stress(workload_info):
     def __filter_workload(df):
         if "stress" in workload_info and workload_info["stress"] != {}:
             stress_data = {}
@@ -52,7 +52,7 @@ def __workload_with_stress(workload_info):
         return df
     return __filter_workload
     
-def __workload_with_score(workload_info):
+def _workload_with_score(workload_info):
     return lambda x:x
 
 def filter_workload(workload_info, with_stress = False, with_score=False):
@@ -64,10 +64,10 @@ def filter_workload(workload_info, with_stress = False, with_score=False):
 
     df_funcs = [filter_row_timerange(start, end)]
     if with_stress:
-        df_funcs.append(__workload_with_stress(workload_info))
+        df_funcs.append(_workload_with_stress(workload_info))
 
     if with_score:
-        df_funcs.append(__workload_with_score(workload_info))
+        df_funcs.append(_workload_with_score(workload_info))
     return df_funcs
 
 def stress_to_str(workload_info):
@@ -116,6 +116,50 @@ class ExpData:
         self.exp = exp
         self.workload_preprocess_funcs = defualt_workload_preprocess_funcs
         self.workload_agg_funcs = defualt_workload_agg_funcs
+
+    # opt_interval/delay using second, return ms
+    def _time_shift(self, opt_interval, delay=0):
+        opt_interval = opt_interval * 1000
+        delay = delay * 1000
+        
+        workload_info = list(self.exp["info_per_epoch"][0]["workloads"].values())[0]
+        assert "start_time" in workload_info or "start" in workload_info
+        assert "end_time" in workload_info or "end" in workload_info
+        
+        e_s = format_to_13_timestamp(self.exp["start_time"])
+        f_s = format_to_13_timestamp(workload_info["start_time"] if "start_time" in workload_info else workload_info["start"])
+        
+        delta = f_s - e_s - 2 * opt_interval - delay
+        if "stress" in self.exp["info_per_epoch"][0]:
+            delta = delta - 2 * opt_interval
+            
+        return delta
+
+    # timeshift using ms
+    def shift_time(self, timeshift):
+        workload_info = list(self.exp["info_per_epoch"][0]["workloads"].values())[0]
+        start_time_key = "start_time" if "start_time" in workload_info else"start"
+        end_time_key = "end_time" if "end_time" in workload_info else"end"
+
+        assert start_time_key in workload_info
+        assert end_time_key in workload_info
+        
+        start = workload_info[start_time_key]
+        # using 10bit timestamp
+        if format_to_13_timestamp(start) != start:
+            timeshift = int(timeshift / 1000)
+        
+        for k, v in self.exp["info_per_workload"].items():
+            for _v in v["info_per_epoch"]:
+                _v[start_time_key]  = _v[start_time_key] - timeshift
+                _v[end_time_key]  = _v[end_time_key] - timeshift
+        
+        for v in self.exp["info_per_epoch"]:
+            for k, _v in v['workloads'].items():
+                _v[start_time_key]  = _v[start_time_key] - timeshift
+                _v[end_time_key]  = _v[end_time_key] - timeshift
+        return self
+        
         
     def workload_keys(self):
         return list(self.exp["info_per_workload"].keys())
@@ -139,8 +183,15 @@ class ExpData:
         self.workload_agg_funcs = df_funcs
         return self
 
-    def agg_one_workload(self, workload, with_stress=False, with_score=False):
-        df_funcs =  filter_workload(workload, with_stress, with_score) + self.workload_preprocess_funcs + self.workload_agg_funcs
+    def agg_one_workload(self, workload_info, with_stress=False, with_score=False):
+        df_funcs =  filter_workload(workload_info) + self.workload_preprocess_funcs + self.workload_agg_funcs
+        
+        # with_stress and with_score after agg
+        if with_score:
+            df_funcs.append(_workload_with_score(workload_info))
+            
+        if with_stress:
+            df_funcs.append(_workload_with_stress(workload_info))
         return apply_df_funcs(self.df, df_funcs)
 
     def __agg_one_epoch(self, n_epoch):
@@ -148,34 +199,40 @@ class ExpData:
         
         dfs = []
         for k,v in epoch_info["workloads"].items():
-            df = self.agg_one_workload(v)
+            df = self.agg_one_workload(v, with_stress=True)
             dfs.append(df)
         
         df = pd.concat(dfs).fillna(0).reset_index(drop=True)
 
         # assume stress is the same in one epoch
-        if "stress" in epoch_info and epoch_info["stress"] != {}:
-            stress_data = {}
-            for k, v in epoch_info["stress"].items():
-                for _k, _v in v.items():
-                    stress_data[f"stress_{_k}"] = [int(_v) for i in range(df.shape[0])]
+        # if "stress" in epoch_info and epoch_info["stress"] != {}:
+        #     stress_data = {}
+        #     for k, v in epoch_info["stress"].items():
+        #         for _k, _v in v.items():
+        #             stress_data[f"stress_{_k}"] = [int(_v) for i in range(df.shape[0])]
                     
-            stress_df = pd.DataFrame(stress_data)
-            assert stress_df.shape[0] == df.shape[0], f"miss match length {stress_df.shape[0]} and {df.shape[0]}"
-            df = pd.concat([stress_df, df], axis=1)
+        #     stress_df = pd.DataFrame(stress_data)
+        #     assert stress_df.shape[0] == df.shape[0], f"miss match length {stress_df.shape[0]} and {df.shape[0]}"
+        #     df = pd.concat([stress_df, df], axis=1)
 
         keys = list(epoch_info["workloads"].keys())
         assert df.shape[0] == len(keys), f"miss match length {len(dfs)} and {len(keys)}"
         
         return df.rename(index=lambda x : keys[x])
         
-    def agg_epoch(self, n_epoch=-1):
+    def agg_epoch(self, n_epoch=-1, df_funcs=[]):
         assert n_epoch <= self.exp["n_epoch"], f"max len: {len(self.exp['info_per_epoch'])}"
-        
+
+        df = None
         if n_epoch != -1:
-            return self.__agg_one_epoch(n_epoch)
+            df = self.__agg_one_epoch(n_epoch)
         else: 
-            return pd.concat([self.__agg_one_epoch(n_epoch) for n_epoch in range(self.exp["n_epoch"])]).fillna(0)
+            df = pd.concat([self.__agg_one_epoch(n_epoch) for n_epoch in range(self.exp["n_epoch"])]).fillna(0)
+
+        if df is not None:
+            df = apply_df_funcs(df, df_funcs)
+
+        return df    
 
     def one_column_on_stresses(self, column, df_key):
         df_dict = {}
@@ -278,6 +335,23 @@ def concat(exp_datas=[]):
     total_df = pd.concat([exp_data.df for exp_data in exp_datas], axis=0)
 
     return ExpData(total_df, total_exp)
+
+def exp_roots_from_dir(root_dir, senario):
+    exp_roots = {"no_stress": "","stresses": []}
+    for dir in os.listdir(root_dir):
+        if dir == senario:
+            for _dir in os.listdir(os.path.join(root_dir, dir)):
+                if _dir == ".ipynb_checkpoints":
+                    continue
+                exp_roots["stresses"].append(os.path.join(root_dir, dir, _dir))
+            exp_roots["stresses"].sort(key=lambda x : int(x.split('_')[-1]))   
+            
+        if dir == "no_stress":
+            dir_list = [d for d in os.listdir(os.path.join(root_dir, dir)) if d != ".ipynb_checkpoints"]
+            dir_list.sort(key=lambda x : int(x.split('_')[-1]))
+    
+            exp_roots["no_stress"] = os.path.join(root_dir, dir, dir_list[-1])
+    return exp_roots
 
 defualt_workload_preprocess_funcs = [
     filter_column_startswith(col_prefix=("stress", "host", "vm", "app")),

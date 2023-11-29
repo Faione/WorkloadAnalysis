@@ -89,6 +89,7 @@ class Experiment:
         self.info_per_epoch = []
         
         self.start_time = int(time.time())
+        # logging.info(f"{self.start()} experiment start") 
         logging.info(f"{self.start_time} experiment start") 
 
         if stress_exec != None:
@@ -97,7 +98,7 @@ class Experiment:
             self.__run_only_workload(workload_exec, interval)
         
         self.end_time = int(time.time())
-        logging.info(f"{self.start()} experiment end")
+        logging.info(f"{self.end()} experiment end")
         self.total_time = self.end_time - self.start_time
         self.__gen_dir_name(workload_exec, stress_exec)
 
